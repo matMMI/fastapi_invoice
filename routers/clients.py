@@ -2,11 +2,11 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlmodel import Session, select, func
-from api.db.session import get_session
-from api.core.security import get_current_user
-from api.models.user import User
-from api.models.client import Client
-from api.schemas.client import ClientCreate, ClientUpdate, ClientResponse, ClientListResponse
+from db.session import get_session
+from core.security import get_current_user
+from models.user import User
+from models.client import Client
+from schemas.client import ClientCreate, ClientUpdate, ClientResponse, ClientListResponse
 from datetime import datetime, timezone
 
 router = APIRouter()

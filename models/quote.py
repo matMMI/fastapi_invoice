@@ -2,7 +2,7 @@ from sqlmodel import SQLModel, Field, Relationship
 from decimal import Decimal
 from uuid import uuid4
 from datetime import datetime, timezone
-from api.models.enums import Currency, QuoteStatus, DiscountType
+from models.enums import Currency, QuoteStatus, DiscountType
 
 
 class Quote(SQLModel, table=True):

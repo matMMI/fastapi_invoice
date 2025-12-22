@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.core.config import settings
-from api.routers import clients, quotes
+from core.config import settings
+from routers import clients, quotes
 app = FastAPI(
     title="Devis Generator API",
     version="1.0.0",

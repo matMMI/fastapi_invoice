@@ -2,13 +2,13 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlmodel import Session, select
-from api.db.session import get_session
-from api.core.security import get_current_user
-from api.models.user import User
-from api.models.quote import Quote, QuoteItem
-from api.models.client import Client
-from api.models.enums import QuoteStatus
-from api.schemas.quote import QuoteCreate, QuoteUpdate, QuoteResponse
+from db.session import get_session
+from core.security import get_current_user
+from models.user import User
+from models.quote import Quote, QuoteItem
+from models.client import Client
+from models.enums import QuoteStatus
+from schemas.quote import QuoteCreate, QuoteUpdate, QuoteResponse
 from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import uuid4

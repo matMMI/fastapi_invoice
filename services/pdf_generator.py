@@ -10,7 +10,7 @@ from io import BytesIO
 from decimal import Decimal
 from datetime import datetime
 
-from api.models.quote import Quote
+from models.quote import Quote
 
 
 def generate_quote_pdf(quote: Quote) -> bytes:

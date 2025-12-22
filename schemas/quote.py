@@ -3,7 +3,7 @@
 from pydantic import BaseModel, Field, validator
 from datetime import datetime
 from decimal import Decimal
-from api.models.enums import Currency, QuoteStatus, DiscountType
+from models.enums import Currency, QuoteStatus, DiscountType
 
 class QuoteItemCreate(BaseModel):
     """Schema for creating a quote item."""

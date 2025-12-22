@@ -1,27 +1,40 @@
+
 """Pydantic schemas for Client API endpoints."""
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 from datetime import datetime
 
 
-class ClientCreate(BaseModel):
-    """Schema for creating a new client."""
-    name: str = Field(..., min_length=1, max_length=255)
-    email: EmailStr = Field(..., max_length=255)
-    company: str | None = Field(None, max_length=255)
-    address: str | None = None
+class ClientBase(BaseModel):
+    """Base schema for client data."""
+    name: str = Field(..., max_length=100)
+    email: str = Field(..., max_length=255, pattern=r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
     phone: str | None = Field(None, max_length=50)
+    address: str | None = Field(None)
+    city: str | None = Field(None, max_length=100)
+    postal_code: str | None = Field(None, max_length=20)
+    country: str | None = Field(None, max_length=100)
     vat_number: str | None = Field(None, max_length=50)
+    notes: str | None = Field(None)
+
+
+class ClientCreate(ClientBase):
+    """Schema for creating a new client."""
+    # Inherits fields from ClientBase
+    pass
 
 
 class ClientUpdate(BaseModel):
     """Schema for updating an existing client."""
-    name: str | None = Field(None, min_length=1, max_length=255)
-    email: EmailStr | None = Field(None, max_length=255)
-    company: str | None = Field(None, max_length=255)
-    address: str | None = None
+    name: str | None = Field(None, max_length=100)
+    email: str | None = Field(None, max_length=255, pattern=r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
     phone: str | None = Field(None, max_length=50)
+    address: str | None = Field(None)
+    city: str | None = Field(None, max_length=100)
+    postal_code: str | None = Field(None, max_length=20)
+    country: str | None = Field(None, max_length=100)
     vat_number: str | None = Field(None, max_length=50)
+    notes: str | None = Field(None)
 
 
 class ClientResponse(BaseModel):

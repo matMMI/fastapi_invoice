@@ -18,7 +18,26 @@ class Settings(BaseSettings):
     debug: bool = False
     
     # CORS
-    cors_origins: list[str] = ["http://localhost:3000"]
+    # Read as string first to avoid Pydantic trying to parse comma-separated list as JSON
+    cors_origins_raw: str = Field(default="http://localhost:3000", validation_alias="CORS_ORIGINS")
+    
+    @property
+    def cors_origins(self) -> list[str]:
+        """Parse CORS origins from raw string (comma-separated or JSON)."""
+        value = self.cors_origins_raw
+        if not value:
+            return []
+        
+        # Try JSON first
+        if value.strip().startswith("["):
+            import json
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                pass
+                
+        # Fallback to comma-separated
+        return [i.strip() for i in value.split(",")]
     
     model_config = SettingsConfigDict(
         env_file=".env",

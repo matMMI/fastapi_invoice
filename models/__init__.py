@@ -5,6 +5,7 @@ from models.user import User
 from models.client import Client
 from models.quote import Quote, QuoteItem
 from models.auth import Session, Account, Verification
+from models.settings import Settings
 
 __all__ = [
     "Currency",
@@ -17,4 +18,5 @@ __all__ = [
     "Session",
     "Account",
     "Verification",
+    "Settings",
 ]

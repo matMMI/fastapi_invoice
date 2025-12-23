@@ -90,3 +90,7 @@ class QuoteResponse(BaseModel):
     items: list[QuoteItemResponse]
 
     model_config = {"from_attributes": True}
+
+class QuoteListResponse(BaseModel):
+    quotes: list[QuoteResponse]
+    total: int

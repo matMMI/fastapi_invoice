@@ -1,4 +1,4 @@
-from sqlmodel import SQLModel, Field
+from sqlmodel import SQLModel, Field, Relationship
 from uuid import uuid4
 from datetime import datetime, timezone
 
@@ -18,3 +18,5 @@ class Client(SQLModel, table=True):
     vat_number: str | None = Field(default=None, max_length=50)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    
+    quotes: list["Quote"] = Relationship(back_populates="client")

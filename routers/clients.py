@@ -31,22 +31,30 @@ async def create_client(
 
 @router.get("/clients", response_model=ClientListResponse)
 async def list_clients(
+    page: int = Query(1, ge=1, description="Page number"),
+    limit: int = Query(10, ge=1, le=100, description="Items per page"),
     search: str | None = Query(None, description="Search by name or email"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_session)
 ):
-    """List all clients for the current user with optional search."""
-    statement = select(Client).where(Client.user_id == current_user.id)
+    """List all clients for the current user with optional search and pagination."""
+    # Base query for filtering
+    query = select(Client).where(Client.user_id == current_user.id)
     
     if search:
         search_filter = f"%{search}%"
-        statement = statement.where(
+        query = query.where(
             (Client.name.ilike(search_filter)) |
             (Client.email.ilike(search_filter))
         )
     
-    clients = db.exec(statement).all()
-    total = len(clients)
+    # Get total count first
+    count_query = select(func.count()).select_from(query.subquery())
+    total = db.exec(count_query).one()
+    
+    # Apply pagination
+    offset = (page - 1) * limit
+    clients = db.exec(query.offset(offset).limit(limit)).all()
     
     return ClientListResponse(clients=clients, total=total)
 

@@ -3,22 +3,24 @@
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import cm
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_RIGHT, TA_CENTER
+from reportlab.lib.enums import TA_RIGHT, TA_LEFT, TA_CENTER
 from io import BytesIO
 from decimal import Decimal
 from datetime import datetime
+import os
 
 from models.quote import Quote
+from models.settings import Settings
 
-
-def generate_quote_pdf(quote: Quote) -> bytes:
+def generate_quote_pdf(quote: Quote, settings: Settings) -> bytes:
     """
     Generate a professional PDF for a quote.
     
     Args:
         quote: Quote model instance with items loaded
+        settings: User settings (company info, logo, footer)
         
     Returns:
         PDF content as bytes
@@ -27,7 +29,6 @@ def generate_quote_pdf(quote: Quote) -> bytes:
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=2*cm, leftMargin=2*cm,
                            topMargin=2*cm, bottomMargin=2*cm)
     
-    # Container for PDF elements
     elements = []
     styles = getSampleStyleSheet()
     
@@ -37,112 +38,151 @@ def generate_quote_pdf(quote: Quote) -> bytes:
         parent=styles['Heading1'],
         fontSize=24,
         textColor=colors.HexColor('#1a1a1a'),
-        spaceAfter=30,
+        spaceAfter=10,
+        alignment=TA_RIGHT
     )
     
-    heading_style = ParagraphStyle(
-        'CustomHeading',
+    company_name_style = ParagraphStyle(
+        'CompanyName',
         parent=styles['Heading2'],
-        fontSize=14,
-        textColor=colors.HexColor('#4a4a4a'),
-        spaceAfter=12,
+        fontSize=16,
+        textColor=colors.HexColor('#1a1a1a'),
+        spaceAfter=2,
     )
     
-    # Title
-    elements.append(Paragraph(f"Quote #{quote.quote_number}", title_style))
-    elements.append(Spacer(1, 0.5*cm))
+    normal_style = ParagraphStyle(
+        'Normal',
+        parent=styles['Normal'],
+        fontSize=10,
+        leading=14
+    )
     
-    # Quote info table
-    info_data = [
-        ['Date:', datetime.now().strftime('%d/%m/%Y')],
-        ['Status:', quote.status.value],
-        ['Currency:', quote.currency.value],
-    ]
+    right_align_style = ParagraphStyle(
+        'RightAlign',
+        parent=normal_style,
+        alignment=TA_RIGHT
+    )
+
+    # --- Header Section (Logo & Company Info vs Quote Info) ---
     
-    info_table = Table(info_data, colWidths=[4*cm, 6*cm])
-    info_table.setStyle(TableStyle([
-        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
-        ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
-        ('FONTSIZE', (0, 0), (-1, -1), 10),
-        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#333333')),
+    # Left column: Logo & Company Info
+    company_info = []
+    if settings.company_logo_url:
+        try:
+            logo_path = settings.company_logo_url
+            # Allow HTTP URLs or valid local paths
+            if logo_path.startswith("http") or os.path.exists(logo_path):
+                # Resize image to fit in header (max width 5cm, max height 2.5cm)
+                img = Image(logo_path, width=5*cm, height=2.5*cm, kind='proportional')
+                img.hAlign = 'LEFT'
+                company_info.append(img)
+                company_info.append(Spacer(1, 0.5*cm))
+        except Exception:
+            pass # Ignore logo errors
+            
+    company_info.append(Paragraph(settings.company_name, company_name_style))
+    if settings.company_address:
+        company_info.append(Paragraph(settings.company_address.replace('\n', '<br/>'), normal_style))
+    if settings.company_email:
+        company_info.append(Paragraph(f"Email: {settings.company_email}", normal_style))
+    if settings.company_phone:
+        company_info.append(Paragraph(f"Tel: {settings.company_phone}", normal_style))
+    if settings.company_website:
+        company_info.append(Paragraph(f"Web: {settings.company_website}", normal_style))
+
+    # Right column: Quote Title & Details
+    quote_details = []
+    quote_details.append(Paragraph("DEVIS", title_style))
+    quote_details.append(Paragraph(f"N° {quote.quote_number}", right_align_style))
+    quote_details.append(Paragraph(f"Date: {quote.created_at.strftime('%d/%m/%Y')}", right_align_style))
+    quote_details.append(Paragraph(f"Validité: 30 jours", right_align_style)) # ToDo: dynamic validity
+    
+    # Table to hold header columns
+    header_data = [[company_info, quote_details]]
+    header_table = Table(header_data, colWidths=[10*cm, 7*cm])
+    header_table.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('LEFTPADDING', (0,0), (-1,-1), 0),
+        ('RIGHTPADDING', (0,0), (-1,-1), 0),
     ]))
+    elements.append(header_table)
+    elements.append(Spacer(1, 1.5*cm))
     
-    elements.append(info_table)
+    # --- Client Info Section ---
+    client_info = []
+    client_info.append(Paragraph("<b>Facturer à :</b>", normal_style))
+    if quote.client:
+        if quote.client.company:
+            client_info.append(Paragraph(quote.client.company, normal_style))
+        client_info.append(Paragraph(quote.client.name, normal_style))
+        if quote.client.address:
+            client_info.append(Paragraph(quote.client.address.replace('\n', '<br/>'), normal_style))
+        client_info.append(Paragraph(quote.client.email, normal_style))
+    
+    # Client box
+    client_table = Table([[Paragraph("", normal_style), client_info]], colWidths=[10*cm, 7*cm])
+    client_table.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+    ]))
+    elements.append(client_table)
     elements.append(Spacer(1, 1*cm))
     
-    # Line items table
-    elements.append(Paragraph("Line Items", heading_style))
-    
-    # Table header
-    items_data = [['Description', 'Qty', 'Unit Price', 'Total']]
-    
-    # Table rows
+    # --- Line Items Table ---
+    # ... (Keep existing logic but styled better)
+    items_data = [['Description', 'Qté', 'Prix Unit.', 'Total']]
     for item in quote.items:
         items_data.append([
-            item.description,
+            Paragraph(item.description, normal_style), # Use Paragraph for wrapping
             str(item.quantity),
-            f"{float(item.unit_price):.2f}",
-            f"{float(item.total):.2f}"
+            f"{float(item.unit_price):.2f} {quote.currency.value}",
+            f"{float(item.total):.2f} {quote.currency.value}"
         ])
-    
+        
     items_table = Table(items_data, colWidths=[9*cm, 2*cm, 3*cm, 3*cm])
     items_table.setStyle(TableStyle([
-        # Header
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f0f0f0')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#1a1a1a')),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f3f4f6')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#111827')),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 11),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('FONTSIZE', (0, 0), (-1, 0), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+        ('TOPPADDING', (0, 0), (-1, 0), 10),
         
-        # Body
         ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-        ('FONTSIZE', (0, 1), (-1, -1), 10),
-        ('TEXTCOLOR', (0, 1), (-1, -1), colors.HexColor('#333333')),
-        
-        # Alignment
-        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
-        ('ALIGN', (0, 0), (0, -1), 'LEFT'),
-        
-        # Grid
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cccccc')),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('TOPPADDING', (0, 1), (-1, -1), 8),
-        ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e5e7eb')),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'), # Qty, Price, Total right aligned
     ]))
-    
     elements.append(items_table)
-    elements.append(Spacer(1, 1*cm))
+    elements.append(Spacer(1, 0.5*cm))
     
-    # Totals table
+    # --- Totals Section ---
     totals_data = [
-        ['Subtotal:', f"{float(quote.subtotal):.2f} {quote.currency.value}"],
-        [f'Tax ({float(quote.tax_rate)}%):', f"{float(quote.tax_amount):.2f} {quote.currency.value}"],
-        ['Total:', f"{float(quote.total):.2f} {quote.currency.value}"],
+        ['Sous-total HT:', f"{float(quote.subtotal):.2f} {quote.currency.value}"],
+        [f'TVA ({float(quote.tax_rate)}%):', f"{float(quote.tax_amount):.2f} {quote.currency.value}"],
+        ['Total TTC:', f"{float(quote.total):.2f} {quote.currency.value}"],
     ]
     
-    totals_table = Table(totals_data, colWidths=[10*cm, 7*cm])
+    totals_table = Table(totals_data, colWidths=[13*cm, 4*cm])
     totals_table.setStyle(TableStyle([
-        ('FONTNAME', (0, 0), (0, -2), 'Helvetica'),
-        ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -2), 10),
-        ('FONTSIZE', (0, -1), (-1, -1), 12),
+        ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'), # Total bold
         ('ALIGN', (0, 0), (-1, -1), 'RIGHT'),
-        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#333333')),
-        ('LINEABOVE', (0, -1), (-1, -1), 1, colors.HexColor('#333333')),
-        ('TOPPADDING', (0, -1), (-1, -1), 12),
+        ('LINEABOVE', (0, -1), (-1, -1), 1, colors.black),
     ]))
-    
     elements.append(totals_table)
     
-    # Notes
+    # --- Footer / Notes ---
     if quote.notes:
         elements.append(Spacer(1, 1*cm))
-        elements.append(Paragraph("Notes", heading_style))
-        elements.append(Paragraph(quote.notes, styles['Normal']))
-    
-    # Build PDF
+        elements.append(Paragraph("<b>Notes:</b>", normal_style))
+        elements.append(Paragraph(quote.notes, normal_style))
+        
+    # --- Legal Footer ---
+    if settings.pdf_footer_text:
+        elements.append(Spacer(1, 2*cm))
+        footer_style = ParagraphStyle('Footer', parent=styles['Normal'], fontSize=8, textColor=colors.gray, alignment=TA_CENTER)
+        elements.append(Paragraph(settings.pdf_footer_text.replace('\n', '<br/>'), footer_style))
+
     doc.build(elements)
-    
     pdf_bytes = buffer.getvalue()
     buffer.close()
     

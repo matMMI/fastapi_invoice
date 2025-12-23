@@ -37,6 +37,7 @@ class Quote(SQLModel, table=True):
     
     # Relationships
     items: list["QuoteItem"] = Relationship(back_populates="quote", cascade_delete=True)
+    client: "Client" = Relationship(back_populates="quotes")
 
 
 class QuoteItem(SQLModel, table=True):

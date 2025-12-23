@@ -1,17 +1,16 @@
 """API routes for quote management."""
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlmodel import Session, select
+from sqlmodel import Session, select, func
 from db.session import get_session
 from core.security import get_current_user
 from models.user import User
 from models.quote import Quote, QuoteItem
 from models.client import Client
 from models.enums import QuoteStatus
-from schemas.quote import QuoteCreate, QuoteUpdate, QuoteResponse
-from datetime import datetime, timezone
+from schemas.quote import QuoteCreate, QuoteUpdate, QuoteResponse, QuoteListResponse
+from datetime import datetime
 from decimal import Decimal
-from uuid import uuid4
 
 router = APIRouter()
 
@@ -89,15 +88,27 @@ async def create_quote(
     db.refresh(quote)
     return quote
 
-@router.get("/quotes", response_model=list[QuoteResponse])
+@router.get("/quotes", response_model=QuoteListResponse)
 async def list_quotes(
+    page: int = Query(1, ge=1, description="Page number"),
+    limit: int = Query(10, ge=1, le=100, description="Items per page"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_session)
 ):
-    """List all quotes for the current user."""
-    statement = select(Quote).where(Quote.user_id == current_user.id).order_by(Quote.created_at.desc())
+    """List all quotes for the current user with pagination."""
+    # Base query
+    query = select(Quote).where(Quote.user_id == current_user.id)
+    
+    # Get total count first
+    count_query = select(func.count()).select_from(query.subquery())
+    total = db.exec(count_query).one()
+    
+    # Apply pagination
+    offset = (page - 1) * limit
+    statement = query.order_by(Quote.created_at.desc()).offset(offset).limit(limit)
     quotes = db.exec(statement).all()
-    return quotes
+    
+    return QuoteListResponse(quotes=quotes, total=total)
 
 @router.get("/quotes/{quote_id}", response_model=QuoteResponse)
 async def get_quote(

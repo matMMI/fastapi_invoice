@@ -8,10 +8,11 @@ from sqlalchemy import pool
 from alembic import context
 
 # Add parent directory to path to import api modules
-sys.path.append(str(Path(__file__).parents[3]))
+# Add parent directory to path to import app modules
+sys.path.append(str(Path(__file__).parents[2]))
 
-from api.core.config import settings
-from api.models import User, Client, Quote, QuoteItem
+from core.config import settings
+from models import User, Client, Quote, QuoteItem, Settings
 from sqlmodel import SQLModel
 
 # this is the Alembic Config object, which provides

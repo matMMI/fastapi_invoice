@@ -1,5 +1,3 @@
-"""API routes for dashboard metrics."""
-
 from fastapi import APIRouter, Depends
 from datetime import datetime
 from sqlmodel import Session, select, func
@@ -74,7 +72,6 @@ async def get_dashboard_metrics(
         select(func.count(Client.id)).where(Client.user_id == current_user.id)
     ).one()
     
-    # Quotes by status
     status_counts = db.exec(
         select(Quote.status, func.count(Quote.id))
         .where(Quote.user_id == current_user.id)
@@ -85,8 +82,6 @@ async def get_dashboard_metrics(
         StatusCount(status=str(status.value), count=count)
         for status, count in status_counts
     ]
-    
-    # Totals by currency (only for accepted quotes)
     currency_totals = db.exec(
         select(Quote.currency, func.sum(Quote.total))
         .where(Quote.user_id == current_user.id)
@@ -99,8 +94,6 @@ async def get_dashboard_metrics(
         for currency, total in currency_totals
     ]
 
-    # Monthly Revenue (Last 6 months)
-    # Using SQL date_trunc and to_char for Postgres
     monthly_data = db.exec(
         select(
             func.to_char(Quote.created_at, 'Mon'),
@@ -119,8 +112,6 @@ async def get_dashboard_metrics(
         for month, total in monthly_data
     ]
     
-    # Recent quotes (last 5)
-    # Join with Client to get client name
     recent = db.exec(
         select(Quote, Client.name)
         .join(Client, Quote.client_id == Client.id, isouter=True)
@@ -146,7 +137,6 @@ async def get_dashboard_metrics(
     current_year = today.year
     current_quarter = (today.month - 1) // 3 + 1
     
-    # Year to Date Revenue (Accepted quotes in current year)
     ytd_revenue = db.exec(
         select(func.sum(Quote.total))
         .where(
@@ -156,7 +146,6 @@ async def get_dashboard_metrics(
         )
     ).one() or 0.0
 
-    # Current Quarter Revenue
     quarter_revenue = db.exec(
         select(func.sum(Quote.total))
         .where(

@@ -5,10 +5,10 @@ __pycache__/
 *.so
 .Python
 venv/
-.venv/
-ENV/
-env/
-.env
+# .venv/
+# ENV/
+# env/
+# .env
 
 # IDEs
 .vscode/

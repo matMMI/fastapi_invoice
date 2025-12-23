@@ -33,12 +33,19 @@ class RecentQuote(BaseModel):
     created_at: str
 
 
+
+class MonthlyRevenue(BaseModel):
+    name: str
+    total: float
+
+
 class DashboardMetrics(BaseModel):
     total_quotes: int
     total_clients: int
     quotes_by_status: list[StatusCount]
     totals_by_currency: list[CurrencyTotal]
     recent_quotes: list[RecentQuote]
+    monthly_revenue: list[MonthlyRevenue]
 
 
 @router.get("/dashboard/metrics", response_model=DashboardMetrics)
@@ -82,6 +89,28 @@ async def get_dashboard_metrics(
         CurrencyTotal(currency=str(currency.value), total=float(total or 0))
         for currency, total in currency_totals
     ]
+
+    # Monthly Revenue (Last 6 months)
+    # Using SQL date_trunc and to_char for Postgres
+    monthly_data = db.exec(
+        select(
+            func.to_char(Quote.created_at, 'Mon'),
+            func.sum(Quote.total)
+        )
+        .where(
+            Quote.user_id == current_user.id,
+            Quote.status == QuoteStatus.ACCEPTED,
+            # We fetch all time for now, or could limit to last 12 months
+            # func.now() - interval '1 year' is cleaner in raw SQL, but here simple is fine
+        )
+        .group_by(func.date_trunc('month', Quote.created_at), func.to_char(Quote.created_at, 'Mon'))
+        .order_by(func.date_trunc('month', Quote.created_at))
+    ).all()
+
+    monthly_revenue = [
+        MonthlyRevenue(name=month, total=float(total or 0))
+        for month, total in monthly_data
+    ]
     
     # Recent quotes (last 5)
     recent = db.exec(
@@ -108,5 +137,6 @@ async def get_dashboard_metrics(
         total_clients=total_clients or 0,
         quotes_by_status=quotes_by_status,
         totals_by_currency=totals_by_currency,
-        recent_quotes=recent_quotes
+        recent_quotes=recent_quotes,
+        monthly_revenue=monthly_revenue
     )

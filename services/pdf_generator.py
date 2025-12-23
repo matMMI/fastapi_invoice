@@ -81,10 +81,10 @@ def generate_quote_pdf(quote: Quote, settings: Settings) -> bytes:
                     img_data = response.read()
                     img_stream = BytesIO(img_data)
                     # 3x3 cm bounding box - fits square logos better while keeping proportion
-                    img = Image(img_stream, width=3*cm, height=3*cm, kind='proportional')
+                    img = Image(img_stream, width=1*cm, height=1*cm, kind='proportional')
             elif os.path.exists(logo_path):
                 # Local file
-                img = Image(logo_path, width=3*cm, height=3*cm, kind='proportional')
+                img = Image(logo_path, width=1*cm, height=1*cm, kind='proportional')
                 
             if img:
                 img.hAlign = 'LEFT'

@@ -28,11 +28,11 @@ class CurrencyTotal(BaseModel):
 class RecentQuote(BaseModel):
     id: str
     quote_number: str
+    client_name: str | None
     status: str
     currency: str
     total: float
     created_at: str
-
 
 
 class MonthlyRevenue(BaseModel):
@@ -109,8 +109,6 @@ async def get_dashboard_metrics(
         .where(
             Quote.user_id == current_user.id,
             Quote.status == QuoteStatus.ACCEPTED,
-            # We fetch all time for now, or could limit to last 12 months
-            # func.now() - interval '1 year' is cleaner in raw SQL, but here simple is fine
         )
         .group_by(func.date_trunc('month', Quote.created_at), func.to_char(Quote.created_at, 'Mon'))
         .order_by(func.date_trunc('month', Quote.created_at))
@@ -122,8 +120,10 @@ async def get_dashboard_metrics(
     ]
     
     # Recent quotes (last 5)
+    # Join with Client to get client name
     recent = db.exec(
-        select(Quote)
+        select(Quote, Client.name)
+        .join(Client, Quote.client_id == Client.id, isouter=True)
         .where(Quote.user_id == current_user.id)
         .order_by(Quote.created_at.desc())
         .limit(5)
@@ -133,12 +133,13 @@ async def get_dashboard_metrics(
         RecentQuote(
             id=str(q.id),
             quote_number=q.quote_number,
+            client_name=client_name,
             status=str(q.status.value),
             currency=str(q.currency.value),
             total=float(q.total),
             created_at=q.created_at.isoformat()
         )
-        for q in recent
+        for q, client_name in recent
     ]
     
     today = datetime.now()

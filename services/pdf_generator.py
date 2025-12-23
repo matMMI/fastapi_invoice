@@ -66,81 +66,78 @@ def generate_quote_pdf(quote: Quote, settings: Settings) -> bytes:
 
     # --- Header Section (Logo & Company Info vs Quote Info) ---
     
-    # Left column: Logo & Company Info
-    company_info = []
+    # Truncate helper
+    def truncate(text, length=50):
+        if text and len(text) > length:
+             return text[:length] + "..."
+        return text
+
+    # --- Header Section (Logo & Company Info vs Quote Info & Client Info) ---
+    
+    # Left Column: Logo & Company Info
+    left_column = []
     if settings.company_logo_url:
         try:
             logo_path = settings.company_logo_url
             img = None
-            
             if logo_path.startswith("http"):
-                # Robust download for HTTP URLs
                 req = urllib.request.Request(logo_path, headers={'User-Agent': 'Mozilla/5.0'})
-                # Resize image to fit in header (max bounding box)
                 with urllib.request.urlopen(req, timeout=2) as response:
                     img_data = response.read()
                     img_stream = BytesIO(img_data)
-                    # 3x3 cm bounding box - fits square logos better while keeping proportion
                     img = Image(img_stream, width=1*cm, height=1*cm, kind='proportional')
             elif os.path.exists(logo_path):
-                # Local file
                 img = Image(logo_path, width=1*cm, height=1*cm, kind='proportional')
                 
             if img:
                 img.hAlign = 'LEFT'
-                company_info.append(img)
-                company_info.append(Spacer(1, 0.3*cm))
+                left_column.append(img)
+                left_column.append(Spacer(1, 0.3*cm))
         except Exception as e:
-            print(f"Warning: Could not load logo from {settings.company_logo_url}: {e}")
-            # Continue without logo
+            print(f"Warning logo: {e}")
             
-    company_info.append(Paragraph(settings.company_name, company_name_style))
+    left_column.append(Paragraph(settings.company_name, company_name_style))
     if settings.company_address:
-        company_info.append(Paragraph(settings.company_address.replace('\n', '<br/>'), normal_style))
+        left_column.append(Paragraph(settings.company_address.replace('\n', '<br/>'), normal_style))
     if settings.company_email:
-        company_info.append(Paragraph(f"Email: {settings.company_email}", normal_style))
+        left_column.append(Paragraph(f"Email: {settings.company_email}", normal_style))
     if settings.company_phone:
-        company_info.append(Paragraph(f"Tel: {settings.company_phone}", normal_style))
+        left_column.append(Paragraph(f"Tel: {settings.company_phone}", normal_style))
     if settings.company_website:
-        company_info.append(Paragraph(f"Web: {settings.company_website}", normal_style))
+        left_column.append(Paragraph(f"Web: {settings.company_website}", normal_style))
     if settings.company_siret:
-        company_info.append(Paragraph(f"SIRET: {settings.company_siret}", normal_style))
+        left_column.append(Paragraph(f"SIRET: {settings.company_siret}", normal_style))
 
-    # Right column: Quote Title & Details
-    quote_details = []
-    quote_details.append(Paragraph("DEVIS", title_style))
-    quote_details.append(Paragraph(f"N° {quote.quote_number}", right_align_style))
-    quote_details.append(Paragraph(f"Date: {quote.created_at.strftime('%d/%m/%Y')}", right_align_style))
-    quote_details.append(Paragraph(f"Validité: 30 jours", right_align_style)) # ToDo: dynamic validity
+    # Right Column: Quote Params & Client Info
+    right_column = []
     
-    # Table to hold header columns
-    header_data = [[company_info, quote_details]]
-    header_table = Table(header_data, colWidths=[10*cm, 7*cm])
+    # Quote Details
+    right_column.append(Paragraph("DEVIS", title_style))
+    right_column.append(Paragraph(f"N° {quote.quote_number}", right_align_style))
+    right_column.append(Paragraph(f"Date: {quote.created_at.strftime('%d/%m/%Y')}", right_align_style))
+    right_column.append(Paragraph(f"Validité: 30 jours", right_align_style))
+    
+    right_column.append(Spacer(1, 1*cm))
+    
+    # Client Info (Right Aligned)
+    right_column.append(Paragraph("<b>Facturer à :</b>", right_align_style))
+    if quote.client:
+        if quote.client.company:
+            right_column.append(Paragraph(truncate(quote.client.company), right_align_style))
+        right_column.append(Paragraph(truncate(quote.client.name), right_align_style))
+        if quote.client.address:
+            right_column.append(Paragraph(truncate(quote.client.address).replace('\n', '<br/>'), right_align_style))
+        right_column.append(Paragraph(truncate(quote.client.email), right_align_style))
+
+    # Unified Header Table
+    header_data = [[left_column, right_column]]
+    header_table = Table(header_data, colWidths=[9*cm, 8*cm])
     header_table.setStyle(TableStyle([
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
         ('LEFTPADDING', (0,0), (-1,-1), 0),
         ('RIGHTPADDING', (0,0), (-1,-1), 0),
     ]))
     elements.append(header_table)
-    elements.append(Spacer(1, 1.5*cm))
-    
-    # --- Client Info Section ---
-    client_info = []
-    client_info.append(Paragraph("<b>Facturer à :</b>", normal_style))
-    if quote.client:
-        if quote.client.company:
-            client_info.append(Paragraph(quote.client.company, normal_style))
-        client_info.append(Paragraph(quote.client.name, normal_style))
-        if quote.client.address:
-            client_info.append(Paragraph(quote.client.address.replace('\n', '<br/>'), normal_style))
-        client_info.append(Paragraph(quote.client.email, normal_style))
-    
-    # Client box
-    client_table = Table([[Paragraph("", normal_style), client_info]], colWidths=[10*cm, 7*cm])
-    client_table.setStyle(TableStyle([
-        ('VALIGN', (0,0), (-1,-1), 'TOP'),
-    ]))
-    elements.append(client_table)
     elements.append(Spacer(1, 1*cm))
     
     # --- Line Items Table ---

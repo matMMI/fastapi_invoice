@@ -1,6 +1,7 @@
 """API routes for dashboard metrics."""
 
 from fastapi import APIRouter, Depends
+from datetime import datetime
 from sqlmodel import Session, select, func
 from db.session import get_session
 from core.security import get_current_user
@@ -39,6 +40,13 @@ class MonthlyRevenue(BaseModel):
     total: float
 
 
+class FiscalRevenue(BaseModel):
+    year_to_date: float
+    quarter_to_date: float
+    current_year: int
+    current_quarter: int
+
+
 class DashboardMetrics(BaseModel):
     total_quotes: int
     total_clients: int
@@ -46,6 +54,7 @@ class DashboardMetrics(BaseModel):
     totals_by_currency: list[CurrencyTotal]
     recent_quotes: list[RecentQuote]
     monthly_revenue: list[MonthlyRevenue]
+    fiscal_revenue: FiscalRevenue
 
 
 @router.get("/dashboard/metrics", response_model=DashboardMetrics)
@@ -132,11 +141,44 @@ async def get_dashboard_metrics(
         for q in recent
     ]
     
+    today = datetime.now()
+    current_year = today.year
+    current_quarter = (today.month - 1) // 3 + 1
+    
+    # Year to Date Revenue (Accepted quotes in current year)
+    ytd_revenue = db.exec(
+        select(func.sum(Quote.total))
+        .where(
+            Quote.user_id == current_user.id,
+            Quote.status == QuoteStatus.ACCEPTED,
+            func.extract('year', Quote.created_at) == current_year
+        )
+    ).one() or 0.0
+
+    # Current Quarter Revenue
+    quarter_revenue = db.exec(
+        select(func.sum(Quote.total))
+        .where(
+            Quote.user_id == current_user.id,
+            Quote.status == QuoteStatus.ACCEPTED,
+            func.extract('year', Quote.created_at) == current_year,
+            func.extract('quarter', Quote.created_at) == current_quarter
+        )
+    ).one() or 0.0
+    
+    fiscal_revenue = FiscalRevenue(
+        year_to_date=float(ytd_revenue),
+        quarter_to_date=float(quarter_revenue),
+        current_year=current_year,
+        current_quarter=current_quarter
+    )
+    
     return DashboardMetrics(
         total_quotes=total_quotes or 0,
         total_clients=total_clients or 0,
         quotes_by_status=quotes_by_status,
         totals_by_currency=totals_by_currency,
         recent_quotes=recent_quotes,
-        monthly_revenue=monthly_revenue
+        monthly_revenue=monthly_revenue,
+        fiscal_revenue=fiscal_revenue
     )

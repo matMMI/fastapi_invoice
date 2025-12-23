@@ -103,6 +103,8 @@ def generate_quote_pdf(quote: Quote, settings: Settings) -> bytes:
         company_info.append(Paragraph(f"Tel: {settings.company_phone}", normal_style))
     if settings.company_website:
         company_info.append(Paragraph(f"Web: {settings.company_website}", normal_style))
+    if settings.company_siret:
+        company_info.append(Paragraph(f"SIRET: {settings.company_siret}", normal_style))
 
     # Right column: Quote Title & Details
     quote_details = []
@@ -170,11 +172,19 @@ def generate_quote_pdf(quote: Quote, settings: Settings) -> bytes:
     elements.append(Spacer(1, 0.5*cm))
     
     # --- Totals Section ---
-    totals_data = [
-        ['Sous-total HT:', f"{float(quote.subtotal):.2f} {quote.currency.value}"],
-        [f'TVA ({float(quote.tax_rate)}%):', f"{float(quote.tax_amount):.2f} {quote.currency.value}"],
-        ['Total TTC:', f"{float(quote.total):.2f} {quote.currency.value}"],
-    ]
+    # --- Totals Section ---
+    totals_data = []
+    
+    if getattr(settings, 'is_vat_applicable', True):
+        totals_data = [
+            ['Sous-total HT:', f"{float(quote.subtotal):.2f} {quote.currency.value}"],
+            [f'TVA ({float(quote.tax_rate)}%):', f"{float(quote.tax_amount):.2f} {quote.currency.value}"],
+            ['Total TTC:', f"{float(quote.total):.2f} {quote.currency.value}"],
+        ]
+    else:
+        totals_data = [
+            ['Total à payer:', f"{float(quote.total):.2f} {quote.currency.value}"],
+        ]
     
     totals_table = Table(totals_data, colWidths=[13*cm, 4*cm])
     totals_table.setStyle(TableStyle([
@@ -189,6 +199,17 @@ def generate_quote_pdf(quote: Quote, settings: Settings) -> bytes:
         elements.append(Spacer(1, 1*cm))
         elements.append(Paragraph("<b>Notes:</b>", normal_style))
         elements.append(Paragraph(quote.notes, normal_style))
+
+    # --- Fiscal & Legal Mentions ---
+    elements.append(Spacer(1, 1*cm))
+    legal_style = ParagraphStyle('Legal', parent=normal_style, fontSize=9)
+    
+    if not getattr(settings, 'is_vat_applicable', True) and getattr(settings, 'vat_exemption_text', None):
+        elements.append(Paragraph(settings.vat_exemption_text, legal_style))
+        
+    if getattr(settings, 'late_payment_penalties', None):
+         elements.append(Paragraph(f"Pénalités de retard : {settings.late_payment_penalties}", legal_style))
+         elements.append(Paragraph("Indemnité forfaitaire pour frais de recouvrement : 40€", legal_style))
         
     # --- Legal Footer ---
     if settings.pdf_footer_text:

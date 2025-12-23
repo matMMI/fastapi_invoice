@@ -76,19 +76,20 @@ def generate_quote_pdf(quote: Quote, settings: Settings) -> bytes:
             if logo_path.startswith("http"):
                 # Robust download for HTTP URLs
                 req = urllib.request.Request(logo_path, headers={'User-Agent': 'Mozilla/5.0'})
-                # Timeout set to 2 seconds to avoid blocking for too long
+                # Resize image to fit in header (max bounding box)
                 with urllib.request.urlopen(req, timeout=2) as response:
                     img_data = response.read()
                     img_stream = BytesIO(img_data)
-                    img = Image(img_stream, width=5*cm, height=2.5*cm, kind='proportional')
+                    # 3x3 cm bounding box - fits square logos better while keeping proportion
+                    img = Image(img_stream, width=3*cm, height=3*cm, kind='proportional')
             elif os.path.exists(logo_path):
                 # Local file
-                img = Image(logo_path, width=5*cm, height=2.5*cm, kind='proportional')
+                img = Image(logo_path, width=3*cm, height=3*cm, kind='proportional')
                 
             if img:
                 img.hAlign = 'LEFT'
                 company_info.append(img)
-                company_info.append(Spacer(1, 0.5*cm))
+                company_info.append(Spacer(1, 0.3*cm))
         except Exception as e:
             print(f"Warning: Could not load logo from {settings.company_logo_url}: {e}")
             # Continue without logo

@@ -30,6 +30,16 @@ class Quote(SQLModel, table=True):
     notes: str | None = Field(default=None)
     payment_terms: str | None = Field(default=None)
     
+    # Share token for client access (electronic signature)
+    share_token: str | None = Field(default=None, unique=True, index=True, max_length=100)
+    share_token_expires_at: datetime | None = Field(default=None)
+    
+    # Electronic signature data
+    signed_at: datetime | None = Field(default=None)
+    signature_data: str | None = Field(default=None)  # Base64 PNG of signature
+    signer_name: str | None = Field(default=None, max_length=200)
+    signer_ip: str | None = Field(default=None, max_length=50)
+    
     # Timestamps
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from core.config import settings
-from routers import clients, quotes, pdf, dashboard
+from routers import clients, quotes, pdf, dashboard, share
 from routers import settings as settings_router
 app = FastAPI(
     title="Devis Generator API",
@@ -23,6 +23,7 @@ app.include_router(quotes.router, prefix="/api", tags=["quotes"])
 app.include_router(pdf.router, prefix="/api", tags=["pdf"])
 app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
 app.include_router(settings_router.router, prefix="/api/settings", tags=["settings"])
+app.include_router(share.router, prefix="/api", tags=["share"])
 @app.get("/")
 async def root():
     return {"message": "Hello World", "environment": settings.environment}

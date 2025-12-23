@@ -14,6 +14,7 @@ import urllib.request
 
 from models.quote import Quote
 from models.settings import Settings
+from models.enums import QuoteStatus
 
 def generate_quote_pdf(quote: Quote, settings: Settings) -> bytes:
     """
@@ -207,6 +208,37 @@ def generate_quote_pdf(quote: Quote, settings: Settings) -> bytes:
     if getattr(settings, 'late_payment_penalties', None):
          elements.append(Paragraph(f"Pénalités de retard : {settings.late_payment_penalties}", legal_style))
          elements.append(Paragraph("Indemnité forfaitaire pour frais de recouvrement : 40€", legal_style))
+
+    # --- Electronic Signature ---
+    if quote.status == QuoteStatus.SIGNED and quote.signature_data:
+        elements.append(Spacer(1, 1*cm))
+        elements.append(Paragraph("<b>Signature Électronique :</b>", normal_style))
+        
+        import base64
+        try:
+            if "," in quote.signature_data:
+                sig_data = quote.signature_data.split(",")[1]
+            else:
+                sig_data = quote.signature_data
+            
+            sig_bytes = base64.b64decode(sig_data)
+            sig_stream = BytesIO(sig_bytes)
+            sig_img = Image(sig_stream, width=4*cm, height=1.5*cm, kind='proportional')
+            sig_img.hAlign = 'LEFT'
+            elements.append(sig_img)
+            
+            details = []
+            if quote.signed_at:
+                signed_date = quote.signed_at.strftime('%d/%m/%Y à %H:%M')
+                details.append(f"Signé le {signed_date}")
+            if quote.signer_name:
+                details.append(f"Par : {quote.signer_name}")
+            if quote.signer_ip:
+                details.append(f"IP : {quote.signer_ip}")
+                
+            elements.append(Paragraph(" - ".join(details), ParagraphStyle('SigDetails', parent=normal_style, fontSize=8, textColor=colors.gray)))
+        except Exception as e:
+            elements.append(Paragraph(f"[Erreur signature: {e}]", normal_style))
         
     # --- Legal Footer ---
     if settings.pdf_footer_text:

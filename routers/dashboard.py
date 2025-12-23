@@ -85,7 +85,7 @@ async def get_dashboard_metrics(
     currency_totals = db.exec(
         select(Quote.currency, func.sum(Quote.total))
         .where(Quote.user_id == current_user.id)
-        .where(Quote.status == QuoteStatus.ACCEPTED)
+        .where(Quote.status.in_([QuoteStatus.ACCEPTED, QuoteStatus.SIGNED]))
         .group_by(Quote.currency)
     ).all()
     
@@ -101,7 +101,7 @@ async def get_dashboard_metrics(
         )
         .where(
             Quote.user_id == current_user.id,
-            Quote.status == QuoteStatus.ACCEPTED,
+            Quote.status.in_([QuoteStatus.ACCEPTED, QuoteStatus.SIGNED]),
         )
         .group_by(func.date_trunc('month', Quote.created_at), func.to_char(Quote.created_at, 'Mon'))
         .order_by(func.date_trunc('month', Quote.created_at))
@@ -141,7 +141,7 @@ async def get_dashboard_metrics(
         select(func.sum(Quote.total))
         .where(
             Quote.user_id == current_user.id,
-            Quote.status == QuoteStatus.ACCEPTED,
+            Quote.status.in_([QuoteStatus.ACCEPTED, QuoteStatus.SIGNED]),
             func.extract('year', Quote.created_at) == current_year
         )
     ).one() or 0.0
@@ -150,7 +150,7 @@ async def get_dashboard_metrics(
         select(func.sum(Quote.total))
         .where(
             Quote.user_id == current_user.id,
-            Quote.status == QuoteStatus.ACCEPTED,
+            Quote.status.in_([QuoteStatus.ACCEPTED, QuoteStatus.SIGNED]),
             func.extract('year', Quote.created_at) == current_year,
             func.extract('quarter', Quote.created_at) == current_quarter
         )

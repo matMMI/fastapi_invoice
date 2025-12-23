@@ -33,7 +33,7 @@ async def create_client(
 async def list_clients(
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(10, ge=1, le=100, description="Items per page"),
-    search: str | None = Query(None, description="Search by name or email"),
+    search: str | None = Query(default=None, description="Search by name or email"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_session)
 ):

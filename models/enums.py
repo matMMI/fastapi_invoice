@@ -16,6 +16,7 @@ class QuoteStatus(str, Enum):
     SENT = "Sent"
     ACCEPTED = "Accepted"
     REJECTED = "Rejected"
+    SIGNED = "Signed"
 
 
 class DiscountType(str, Enum):

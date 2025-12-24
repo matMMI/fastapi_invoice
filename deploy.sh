@@ -60,15 +60,7 @@ if ! command -v vercel &> /dev/null; then
 else
     SHOULD_DEPLOY=false
     
-    if [[ "$INTERACTIVE" == "false" ]]; then
-        # Auto-deploy if argument was provided
-        SHOULD_DEPLOY=true
-    else
-        read -p "❓ Déployer avec Vercel CLI maintenant? (o/N): " response
-        if [[ "$response" =~ ^[Oo]$ ]]; then
-            SHOULD_DEPLOY=true
-        fi
-    fi
+    SHOULD_DEPLOY=true
     
     if [[ "$SHOULD_DEPLOY" == "true" ]]; then
         echo "🚀 Déploiement en production..."

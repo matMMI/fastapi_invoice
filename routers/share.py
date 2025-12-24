@@ -173,8 +173,13 @@ async def sign_quote(
         raise HTTPException(status_code=404, detail="Devis non trouvé ou lien invalide")
     
     # Check expiration
-    if quote.share_token_expires_at and quote.share_token_expires_at < datetime.now(timezone.utc):
-        raise HTTPException(status_code=410, detail="Ce lien de partage a expiré")
+    if quote.share_token_expires_at:
+        expires_at = quote.share_token_expires_at
+        # Ensure timezone-aware comparison
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at < datetime.now(timezone.utc):
+            raise HTTPException(status_code=410, detail="Ce lien de partage a expiré")
     
     # Check if already signed
     if quote.signed_at:
@@ -238,8 +243,14 @@ async def get_public_quote_pdf(
         # Fallback settings
         settings = Settings(user_id=quote.user_id, company_name="My Company", default_currency="EUR", default_tax_rate=20.0)
 
+    # Get the user (owner of the quote) for PDF generation
+    from models.user import User
+    user = db.get(User, quote.user_id)
+    if not user:
+        raise HTTPException(status_code=500, detail="Utilisateur non trouvé")
+
     try:
-        pdf_bytes = generate_quote_pdf(quote, settings)
+        pdf_bytes = generate_quote_pdf(quote, settings, user)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate PDF: {str(e)}")
     

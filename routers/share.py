@@ -114,9 +114,9 @@ async def get_public_quote(
     if not quote:
         raise HTTPException(status_code=404, detail="Devis non trouvé ou lien invalide")
     
-    # Check expiration
-    if quote.share_token_expires_at and quote.share_token_expires_at < datetime.now(timezone.utc):
-        raise HTTPException(status_code=410, detail="Ce lien de partage a expiré")
+    # Expiration check removed
+    # if quote.share_token_expires_at and quote.share_token_expires_at < datetime.now(timezone.utc):
+    #     raise HTTPException(status_code=410, detail="Ce lien de partage a expiré")
     
     # Get client info
     client = db.exec(select(Client).where(Client.id == quote.client_id)).first()
@@ -203,4 +203,52 @@ async def sign_quote(
         success=True,
         message="Devis signé avec succès",
         signed_at=now
+    )
+
+
+@router.get("/public/quotes/{token}/pdf")
+async def get_public_quote_pdf(
+    token: str,
+    db: Session = Depends(get_session)
+):
+    """Download quote PDF (public, no auth required)."""
+    from services.pdf_generator import generate_quote_pdf
+    from models.settings import Settings
+    from fastapi.responses import Response
+    from sqlalchemy.orm import selectinload
+
+    # Fetch quote with relations (needed for PDF)
+    statement = select(Quote).where(Quote.share_token == token).options(
+        selectinload(Quote.client),
+        selectinload(Quote.items)
+    )
+    quote = db.exec(statement).first()
+    
+    if not quote:
+        raise HTTPException(status_code=404, detail="Devis non trouvé ou lien invalide")
+    
+    
+    # Expiration check removed to allow permanent access to signed quotes
+    # if quote.share_token_expires_at and quote.share_token_expires_at < datetime.now(timezone.utc):
+    #     raise HTTPException(status_code=410, detail="Ce lien de partage a expiré")
+    
+    # Get user settings for PDF customization
+    settings = db.exec(select(Settings).where(Settings.user_id == quote.user_id)).first()
+    if not settings:
+        # Fallback settings
+        settings = Settings(user_id=quote.user_id, company_name="My Company", default_currency="EUR", default_tax_rate=20.0)
+
+    try:
+        pdf_bytes = generate_quote_pdf(quote, settings)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate PDF: {str(e)}")
+    
+    filename = f"Devis_{quote.quote_number}.pdf"
+    
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename={filename}"
+        }
     )

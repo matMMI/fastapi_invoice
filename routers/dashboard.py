@@ -53,6 +53,15 @@ class DashboardMetrics(BaseModel):
     recent_quotes: list[RecentQuote]
     monthly_revenue: list[MonthlyRevenue]
     fiscal_revenue: FiscalRevenue
+    threshold_status: "ThresholdStatus"
+
+
+class ThresholdStatus(BaseModel):
+    revenue: float
+    base_threshold: float
+    max_threshold: float
+    status: str # "ok", "warning", "exceeded", "assujetti"
+    message: str
 
 
 @router.get("/dashboard/metrics", response_model=DashboardMetrics)
@@ -169,6 +178,40 @@ async def get_dashboard_metrics(
         current_quarter=current_quarter
     )
     
+    # Threshold Logic (Phase 18)
+    # Calculate Collected Revenue (Paid Date in Current Year)
+    collected_revenue = db.exec(
+        select(func.sum(Quote.total))
+        .where(
+            Quote.user_id == current_user.id,
+            Quote.is_paid == True,
+            func.extract('year', Quote.payment_date) == current_year
+        )
+    ).one() or 0.0
+    
+    collected_revenue = float(collected_revenue)
+    threshold_status = "ok"
+    threshold_msg = "En dessous du seuil de franchise (37 500 €)."
+    
+    if current_user.tax_status == "ASSUJETTI":
+        threshold_status = "assujetti"
+        threshold_msg = "Vous êtes assujetti à la TVA."
+    else:
+        if collected_revenue > 41250:
+            threshold_status = "exceeded"
+            threshold_msg = "Seuil majoré (41 250 €) dépassé ! Passage à la TVA obligatoire."
+        elif collected_revenue > 37500:
+            threshold_status = "warning"
+            threshold_msg = "Seuil de base (37 500 €) dépassé. Attention au seuil majoré."
+            
+    threshold_data = ThresholdStatus(
+        revenue=collected_revenue,
+        base_threshold=37500.0,
+        max_threshold=41250.0,
+        status=threshold_status,
+        message=threshold_msg
+    )
+    
     return DashboardMetrics(
         total_quotes=total_quotes or 0,
         total_clients=total_clients or 0,
@@ -176,5 +219,6 @@ async def get_dashboard_metrics(
         totals_by_currency=totals_by_currency,
         recent_quotes=recent_quotes,
         monthly_revenue=monthly_revenue,
-        fiscal_revenue=fiscal_revenue
+        fiscal_revenue=fiscal_revenue,
+        threshold_status=threshold_data
     )

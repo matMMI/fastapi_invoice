@@ -5,21 +5,17 @@ from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 from sqlalchemy.orm import selectinload
 from io import BytesIO
-
 from db.session import get_session
 from core.security import get_current_user
 from models.user import User
 from models.quote import Quote
 from models.settings import Settings
 from services.pdf_generator import generate_quote_pdf
-
 router = APIRouter()
-
 def get_user_settings(session: Session, user_id: str) -> Settings:
     statement = select(Settings).where(Settings.user_id == user_id)
     settings = session.exec(statement).first()
     if not settings:
-        # Defaults if not set
         settings = Settings(user_id=user_id, company_name="My Company", default_currency="EUR", default_tax_rate=20.0)
     return settings
 
@@ -35,7 +31,6 @@ async def generate_pdf(
     
     Returns the PDF as a downloadable file.
     """
-    # Fetch quote with relations
     statement = select(Quote).where(Quote.id == quote_id).options(
         selectinload(Quote.client),
         selectinload(Quote.items)
@@ -45,14 +40,12 @@ async def generate_pdf(
     if not quote or quote.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Quote not found")
     
-    # Generate PDF
     try:
         settings = get_user_settings(db, current_user.id)
-        pdf_bytes = generate_quote_pdf(quote, settings)
+        pdf_bytes = generate_quote_pdf(quote, settings, current_user)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate PDF: {str(e)}")
     
-    # Return as downloadable PDF
     filename = f"{quote.quote_number}.pdf"
     
     return Response(
@@ -70,12 +63,6 @@ async def get_pdf(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_session)
 ):
-    """
-    Get the PDF for a quote (generates it on the fly).
-    
-    This endpoint returns the PDF inline for preview.
-    """
-    # Fetch quote with relations
     statement = select(Quote).where(Quote.id == quote_id).options(
         selectinload(Quote.client),
         selectinload(Quote.items)
@@ -87,7 +74,7 @@ async def get_pdf(
     
     try:
         settings = get_user_settings(db, current_user.id)
-        pdf_bytes = generate_quote_pdf(quote, settings)
+        pdf_bytes = generate_quote_pdf(quote, settings, current_user)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate PDF: {str(e)}")
     

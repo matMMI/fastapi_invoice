@@ -2,7 +2,7 @@ from sqlmodel import SQLModel, Field, Relationship
 from decimal import Decimal
 from uuid import uuid4
 from datetime import datetime, timezone
-from models.enums import Currency, QuoteStatus, DiscountType
+from models.enums import Currency, QuoteStatus, DiscountType, TaxStatus
 
 
 class Quote(SQLModel, table=True):
@@ -16,6 +16,11 @@ class Quote(SQLModel, table=True):
     client_id: str = Field(foreign_key="client.id", index=True)
     currency: Currency = Field(default=Currency.EUR)
     status: QuoteStatus = Field(default=QuoteStatus.DRAFT, index=True)
+    
+    # Fiscal Snapshot & Payment
+    tax_status: TaxStatus = Field(default=TaxStatus.FRANCHISE)  # Snapshot at creation
+    is_paid: bool = Field(default=False)
+    payment_date: datetime | None = Field(default=None)
     
     # Financial calculations
     subtotal: Decimal = Field(default=Decimal("0.00"), max_digits=12, decimal_places=2)

@@ -9,7 +9,7 @@ venv/
 ENV/
 env/
 .env
-.env.local
+.env.loca
 vercel.env
 # IDEs
 .vscode/

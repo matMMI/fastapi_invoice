@@ -14,7 +14,7 @@ class QuoteItemCreate(BaseModel):
 
 class QuoteItemUpdate(BaseModel):
     """Schema for updating a quote item."""
-    id: str | None = None  # Optional for new items in update
+    id: str | None = None
     description: str | None = Field(None, min_length=1)
     quantity: Decimal | None = Field(None, gt=0)
     unit_price: Decimal | None = Field(None, ge=0)
@@ -35,7 +35,7 @@ class QuoteItemResponse(BaseModel):
 class QuoteCreate(BaseModel):
     """Schema for creating a new quote."""
     client_id: str
-    quote_number: str | None = None  # Optional, can be auto-generated
+    quote_number: str | None = None
     currency: Currency = Currency.EUR
     tax_rate: Decimal = Field(default=Decimal("20.00"), ge=0)
     discount_type: DiscountType | None = None
@@ -59,6 +59,8 @@ class QuoteUpdate(BaseModel):
     notes: str | None = None
     payment_terms: str | None = None
     
+    is_paid: bool | None = None  # Allow updating payment status
+    
     items: list[QuoteItemUpdate] | None = None
 
 class QuoteResponse(BaseModel):
@@ -77,6 +79,11 @@ class QuoteResponse(BaseModel):
     tax_rate: Decimal
     tax_amount: Decimal
     total: Decimal
+    
+    # Fiscal & Payment
+    tax_status: str | None = None # Enum as str
+    is_paid: bool
+    payment_date: datetime | None
     
     # Metadata
     pdf_url: str | None

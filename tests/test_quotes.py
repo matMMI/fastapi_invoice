@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from models.user import User
 from models.client import Client
 from models.quote import Quote, QuoteItem
-from models.enums import QuoteStatus, Currency
+from models.enums import QuoteStatus, Currency, TaxStatus
 from models.auth import Session as AuthSession
 
 
@@ -21,7 +21,8 @@ def authenticated_client(client: TestClient, session: Session):
         id="test-user-id",
         email="test@example.com",
         name="Test User",
-        email_verified=False
+        email_verified=False,
+        tax_status=TaxStatus.ASSUJETTI # Required for tax calc test
     )
     session.add(user)
     

@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     # Read as string first to avoid Pydantic trying to parse comma-separated list as JSON
     cors_origins_raw: str = Field(default="http://localhost:3000", validation_alias="CORS_ORIGINS")
     
+    # Admin Credentials (Hardening)
+    admin_email: str
+    admin_username: str
+    admin_name: str
+    admin_password: str
+    
     @property
     def cors_origins(self) -> list[str]:
         """Parse CORS origins from raw string (comma-separated or JSON)."""

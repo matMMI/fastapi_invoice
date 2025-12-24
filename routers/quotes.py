@@ -7,9 +7,9 @@ from core.security import get_current_user
 from models.user import User
 from models.quote import Quote, QuoteItem
 from models.client import Client
-from models.enums import QuoteStatus
+from models.enums import QuoteStatus, TaxStatus
 from schemas.quote import QuoteCreate, QuoteUpdate, QuoteResponse, QuoteListResponse
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 
 router = APIRouter()
@@ -48,9 +48,13 @@ async def create_quote(
     # Generate quote number if not provided
     quote_number = quote_data.quote_number
     if not quote_number:
-        # Simple auto-increment-like or timestamp based
-        # For MVP: "Q-{timestamp}"
-        quote_number = f"Q-{int(datetime.now().timestamp())}"
+        quote_number = f"Q-{int(datetime.now().timestamp() * 1000)}"
+
+    # Determine Tax Rate based on Status
+    # If FRANCHISE, force 0. If ASSUJETTI, use provided or default.
+    effective_tax_rate = quote_data.tax_rate
+    if current_user.tax_status == TaxStatus.FRANCHISE:
+        effective_tax_rate = Decimal("0.00")
 
     # Create Quote
     quote = Quote(
@@ -58,12 +62,13 @@ async def create_quote(
         client_id=quote_data.client_id,
         quote_number=quote_number,
         currency=quote_data.currency,
-        tax_rate=quote_data.tax_rate,
+        tax_rate=effective_tax_rate,
         discount_type=quote_data.discount_type,
         discount_value=quote_data.discount_value,
         notes=quote_data.notes,
         payment_terms=quote_data.payment_terms,
-        status=QuoteStatus.DRAFT
+        status=QuoteStatus.DRAFT,
+        tax_status=current_user.tax_status # Snapshot
     )
     
     # Create Items and Calculate
@@ -76,14 +81,13 @@ async def create_quote(
             unit_price=item_in.unit_price,
             total=item_total,
             order=item_in.order,
-            quote=quote # Relationship handling
+            quote=quote 
         )
         db_items.append(db_item)
     
     calculate_quote_totals(quote, db_items)
     
     db.add(quote)
-    # db.add_all(db_items) # Relationship adds them automatically
     db.commit()
     db.refresh(quote)
     return quote
@@ -97,14 +101,10 @@ async def list_quotes(
 ):
     """List all quotes for the current user with pagination."""
     try:
-        # Base query
         query = select(Quote).where(Quote.user_id == current_user.id)
-        
-        # Get total count first
         count_query = select(func.count()).select_from(query.subquery())
         total = db.exec(count_query).one()
         
-        # Apply pagination
         offset = (page - 1) * limit
         statement = query.order_by(Quote.created_at.desc()).offset(offset).limit(limit)
         quotes = db.exec(statement).all()
@@ -134,50 +134,56 @@ async def update_quote(
     db: Session = Depends(get_session)
 ):
     """Update a quote and its items."""
-    # This acts as a full replacement for logic simplicity in MVP
     quote = db.get(Quote, quote_id)
     if not quote or quote.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Quote not found")
 
+    # Inalterability Check
+    if quote.is_paid:
+        raise HTTPException(status_code=403, detail="Cannot modify a paid invoice (Inalterability rule).")
+
     # Update header fields
-    if quote_data.client_id:
-        quote.client_id = quote_data.client_id
-    if quote_data.quote_number:
-        quote.quote_number = quote_data.quote_number
-    if quote_data.currency:
-        quote.currency = quote_data.currency
-    if quote_data.status:
-        quote.status = quote_data.status
+    if quote_data.client_id: quote.client_id = quote_data.client_id
+    if quote_data.quote_number: quote.quote_number = quote_data.quote_number
+    if quote_data.currency: quote.currency = quote_data.currency
+    if quote_data.status: quote.status = quote_data.status
+    
+    # Update Payment Status (Allow setting is_paid via update)
+    # Note: QuoteUpdate schema needs to support is_paid if we want frontend to set it.
+    # Assuming QuoteUpdate has extra=ignore or we added it? 
+    # Spec says "Quote Model: Add ... is_paid". Frontend "Bouton pour marquer comme Payé".
+    # I should check QuoteUpdate schema. If strict, I need to update it.
+    # For now, I'll update it if present in dict form or model.
+    if hasattr(quote_data, "is_paid") and quote_data.is_paid is not None:
+         quote.is_paid = quote_data.is_paid
+         if quote.is_paid and not quote.payment_date:
+             quote.payment_date = datetime.now(timezone.utc)
+    
+    # Enforce Tax Rate Logic on Update too
     if quote_data.tax_rate is not None:
-        quote.tax_rate = quote_data.tax_rate
+        if quote.tax_status == TaxStatus.FRANCHISE:
+            quote.tax_rate = Decimal("0.00")
+        else:
+            quote.tax_rate = quote_data.tax_rate
     
-    # Handle Items (Smart update: Delete missing, Add new, Update existing)
-    # For MVP: Simplest is Delete All & Recreate, but that changes IDs.
-    # Better: Reconcile.
-    
+    # Handle Items
     if quote_data.items is not None:
-        # Map existing items by ID
         existing_items = {item.id: item for item in quote.items}
-        
         new_items_list = []
         
         for item_in in quote_data.items:
             item_total = (item_in.quantity or Decimal(0)) * (item_in.unit_price or Decimal(0))
             
             if item_in.id and item_in.id in existing_items:
-                # Update existing
                 existing_item = existing_items[item_in.id]
                 if item_in.description: existing_item.description = item_in.description
                 if item_in.quantity: existing_item.quantity = item_in.quantity
                 if item_in.unit_price: existing_item.unit_price = item_in.unit_price
                 if item_in.order is not None: existing_item.order = item_in.order
-                
-                # Recalculate item total
                 existing_item.total = existing_item.quantity * existing_item.unit_price
                 new_items_list.append(existing_item)
-                del existing_items[item_in.id] # Mark as kept
+                del existing_items[item_in.id]
             else:
-                # Create new
                 new_item = QuoteItem(
                     quote_id=quote.id,
                     description=item_in.description or "",
@@ -187,15 +193,11 @@ async def update_quote(
                     order=item_in.order or 0
                 )
                 db.add(new_item)
-                # Note: We don't add to new_items_list for calculation immediately because it's not bound?
-                # Actually we can use it.
                 new_items_list.append(new_item)
         
-        # Delete remaining existing items
         for old_item in existing_items.values():
             db.delete(old_item)
             
-        # Recalculate Quote Totals with current list
         calculate_quote_totals(quote, new_items_list)
         
     db.add(quote)
@@ -203,15 +205,61 @@ async def update_quote(
     db.refresh(quote)
     return quote
 
-@router.delete("/quotes/{quote_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_quote(
-    quote_id: str,
+
+@router.get("/export/revenue")
+async def export_revenue(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_session)
 ):
-    quote = db.get(Quote, quote_id)
-    if not quote or quote.user_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Quote not found")
+    """Export 'Livre des Recettes' as CSV."""
+    import csv
+    import io
+    from fastapi.responses import StreamingResponse
+    
+    # Query paid quotes
+    query = (
+        select(Quote)
+        .where(Quote.user_id == current_user.id)
+        .where(Quote.is_paid == True)
+        .order_by(Quote.payment_date.desc())
+    )
+    quotes = db.exec(query).all()
+    
+    # Generate CSV
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # Header
+    writer.writerow([
+        "Date Encaissement", 
+        "Référence", 
+        "Client", 
+        "Montant HT", 
+        "TVA", 
+        "Montant TTC", 
+        "Mode de Paiement"
+    ])
+    
+    for q in quotes:
+        client_name = q.client.name if q.client else "Inconnu"
+        payment_date = q.payment_date.strftime("%d/%m/%Y") if q.payment_date else ""
         
-    db.delete(quote)
-    db.commit()
+        writer.writerow([
+            payment_date,
+            q.quote_number,
+            client_name,
+            f"{q.subtotal:.2f}",
+            f"{q.tax_amount:.2f}",
+            f"{q.total:.2f}",
+            "Virement" # Placeholder, could be a field later
+        ])
+        
+    output.seek(0)
+    
+    filename = f"livre_recettes_{datetime.now().strftime('%Y%m%d')}.csv"
+    
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )

@@ -23,3 +23,9 @@ class DiscountType(str, Enum):
     """Discount calculation methods."""
     PERCENTAGE = "percentage"
     FIXED = "fixed"
+
+
+class TaxStatus(str, Enum):
+    """Fiscal status for VAT calculation."""
+    FRANCHISE = "FRANCHISE"  # TVA non applicable (Art. 293 B du CGI)
+    ASSUJETTI = "ASSUJETTI"  # TVA applicable (20%)

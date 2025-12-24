@@ -4,15 +4,16 @@ import sys
 from pathlib import Path
 
 # Add project root to Python path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+# Add project root to Python path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, create_engine, SQLModel
 from sqlmodel.pool import StaticPool
 
-from api.main import app
-from api.db.session import get_session
+from main import app
+from db.session import get_session
 
 
 @pytest.fixture(name="session")

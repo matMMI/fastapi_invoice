@@ -96,19 +96,23 @@ async def list_quotes(
     db: Session = Depends(get_session)
 ):
     """List all quotes for the current user with pagination."""
-    # Base query
-    query = select(Quote).where(Quote.user_id == current_user.id)
-    
-    # Get total count first
-    count_query = select(func.count()).select_from(query.subquery())
-    total = db.exec(count_query).one()
-    
-    # Apply pagination
-    offset = (page - 1) * limit
-    statement = query.order_by(Quote.created_at.desc()).offset(offset).limit(limit)
-    quotes = db.exec(statement).all()
-    
-    return QuoteListResponse(quotes=quotes, total=total)
+    try:
+        # Base query
+        query = select(Quote).where(Quote.user_id == current_user.id)
+        
+        # Get total count first
+        count_query = select(func.count()).select_from(query.subquery())
+        total = db.exec(count_query).one()
+        
+        # Apply pagination
+        offset = (page - 1) * limit
+        statement = query.order_by(Quote.created_at.desc()).offset(offset).limit(limit)
+        quotes = db.exec(statement).all()
+        
+        return QuoteListResponse(quotes=quotes, total=total)
+    except Exception as e:
+        print(f"Error listing quotes: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/quotes/{quote_id}", response_model=QuoteResponse)
 async def get_quote(

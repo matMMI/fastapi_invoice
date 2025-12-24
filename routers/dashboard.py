@@ -79,7 +79,10 @@ async def get_dashboard_metrics(
     ).all()
     
     quotes_by_status = [
-        StatusCount(status=str(status.value), count=count)
+        StatusCount(
+            status=str(status.value) if hasattr(status, "value") else str(status),
+            count=count
+        )
         for status, count in status_counts
     ]
     currency_totals = db.exec(
@@ -90,7 +93,10 @@ async def get_dashboard_metrics(
     ).all()
     
     totals_by_currency = [
-        CurrencyTotal(currency=str(currency.value), total=float(total or 0))
+        CurrencyTotal(
+            currency=str(currency.value) if hasattr(currency, "value") else str(currency),
+            total=float(total or 0)
+        )
         for currency, total in currency_totals
     ]
 
@@ -125,8 +131,8 @@ async def get_dashboard_metrics(
             id=str(q.id),
             quote_number=q.quote_number,
             client_name=client_name,
-            status=str(q.status.value),
-            currency=str(q.currency.value),
+            status=str(q.status.value) if hasattr(q.status, "value") else str(q.status),
+            currency=str(q.currency.value) if hasattr(q.currency, "value") else str(q.currency),
             total=float(q.total),
             created_at=q.created_at.isoformat()
         )

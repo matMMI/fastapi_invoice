@@ -4,9 +4,9 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from api.models.user import User
-from api.models.client import Client
-from api.models.auth import Session as AuthSession
+from models.user import User
+from models.client import Client
+from models.auth import Session as AuthSession
 from datetime import datetime, timedelta, timezone
 
 

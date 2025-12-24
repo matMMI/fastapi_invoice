@@ -62,3 +62,30 @@ def update_settings(
     session.refresh(settings)
     
     return settings
+
+@router.delete("/reset", status_code=204)
+def reset_account_data(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    DANGER: Delete all data for the current user (Quotes, Items, Clients).
+    Does NOT delete the User account or global Settings.
+    """
+    from models.quote import Quote, QuoteItem
+    from models.client import Client
+    
+    # 1. Delete all Quotes (and cascade Items)
+    statement_quotes = select(Quote).where(Quote.user_id == current_user.id)
+    quotes = session.exec(statement_quotes).all()
+    for quote in quotes:
+        session.delete(quote)
+        
+    # 2. Delete all Clients
+    statement_clients = select(Client).where(Client.user_id == current_user.id)
+    clients = session.exec(statement_clients).all()
+    for client in clients:
+        session.delete(client)
+        
+    session.commit()
+    return None

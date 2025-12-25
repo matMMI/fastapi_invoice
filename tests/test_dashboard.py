@@ -43,10 +43,10 @@ def dashboard_setup(client: TestClient, session: Session):
         created_at=datetime.now(timezone.utc)
     )
     
-    # 4. USD Quote Signed (USD 20)
+    # 4. Rejected Quote (EUR 200) - Should NOT count in revenue
     q4 = Quote(
         id="q4", user_id=user.id, client_id=client_db.id, quote_number="Q4",
-        status=QuoteStatus.SIGNED, currency=Currency.USD, total=Decimal("20"),
+        status=QuoteStatus.REJECTED, currency=Currency.EUR, total=Decimal("200"),
         created_at=datetime.now(timezone.utc)
     )
 
@@ -82,27 +82,12 @@ def test_dashboard_metrics(dashboard_setup):
     # Total Quotes (4 created)
     assert data["total_quotes"] == 4
     
-    # Fiscal Revenue (EUR 100 + 50 = 150)
-    # Note: Logic in dashboard.py usually sums only base currency or specific logic.
-    # Assuming simple sum of SIGNED/ACCEPTED for now, let's see how it separates currencies.
-    
-    # Check Currency Totals
-    # EUR: 150
-    # USD: 20
+    # Check Currency Totals (EUR only: 100 + 50 = 150)
     eur_total = next((item for item in data["totals_by_currency"] if item["currency"] == "EUR"), None)
-    usd_total = next((item for item in data["totals_by_currency"] if item["currency"] == "USD"), None)
     
     assert eur_total is not None
     assert eur_total["total"] == 150.0
     
-    assert usd_total is not None
-    assert usd_total["total"] == 20.0
-    
-    # Check Fiscal Revenue (Should be total of main currency or sum converted? 
-    # Current implementation sums everything in YTD revenue regardless of currency or matching user currency?
-    # Let's verify behavior. If it sums raw numbers: 150 + 20 = 170.
-    # Ideally it should separate or convert. 
-    # Based on previous reading of dashboard.py, it sums Quote.total where status in [ACCEPTED, SIGNED].
-    # So it likely mixes currencies (170).
-    
-    assert data["fiscal_revenue"]["year_to_date"] == 170.0
+    # Fiscal Revenue (SIGNED + ACCEPTED = 100 + 50 = 150)
+    assert data["fiscal_revenue"]["year_to_date"] == 150.0
+

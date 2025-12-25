@@ -51,6 +51,7 @@ class DashboardMetrics(BaseModel):
     quotes_by_status: list[StatusCount]
     totals_by_currency: list[CurrencyTotal]
     recent_quotes: list[RecentQuote]
+    recent_quotes_total: int  # Total count for pagination
     monthly_revenue: list[MonthlyRevenue]
     fiscal_revenue: FiscalRevenue
     threshold_status: "ThresholdStatus"
@@ -66,10 +67,12 @@ class ThresholdStatus(BaseModel):
 
 @router.get("/dashboard/metrics", response_model=DashboardMetrics)
 async def get_dashboard_metrics(
+    page: int = 1,
+    limit: int = 5,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_session)
 ):
-    """Get dashboard metrics for the current user."""
+    """Get dashboard metrics for the current user. Supports pagination for recent_quotes."""
     
     # Total quotes
     total_quotes = db.exec(
@@ -127,12 +130,21 @@ async def get_dashboard_metrics(
         for month, total in monthly_data
     ]
     
+    # Get total count for pagination
+    recent_quotes_total = db.exec(
+        select(func.count(Quote.id)).where(Quote.user_id == current_user.id)
+    ).one()
+
+    # Calculate offset
+    offset = (page - 1) * limit
+
     recent = db.exec(
         select(Quote, Client.name)
         .join(Client, Quote.client_id == Client.id, isouter=True)
         .where(Quote.user_id == current_user.id)
         .order_by(Quote.created_at.desc())
-        .limit(5)
+        .offset(offset)
+        .limit(limit)
     ).all()
     
     recent_quotes = [
@@ -218,6 +230,7 @@ async def get_dashboard_metrics(
         quotes_by_status=quotes_by_status,
         totals_by_currency=totals_by_currency,
         recent_quotes=recent_quotes,
+        recent_quotes_total=recent_quotes_total or 0,
         monthly_revenue=monthly_revenue,
         fiscal_revenue=fiscal_revenue,
         threshold_status=threshold_data

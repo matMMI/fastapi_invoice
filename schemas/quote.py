@@ -69,6 +69,7 @@ class QuoteResponse(BaseModel):
     quote_number: str
     user_id: str
     client_id: str
+    client_name: str | None = None
     status: QuoteStatus
     currency: Currency
     

@@ -67,12 +67,10 @@ class ThresholdStatus(BaseModel):
 
 @router.get("/dashboard/metrics", response_model=DashboardMetrics)
 async def get_dashboard_metrics(
-    page: int = 1,
-    limit: int = 5,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_session)
 ):
-    """Get dashboard metrics for the current user. Supports pagination for recent_quotes."""
+    """Get dashboard metrics for the current user."""
     
     # Total quotes
     total_quotes = db.exec(
@@ -130,35 +128,10 @@ async def get_dashboard_metrics(
         for month, total in monthly_data
     ]
     
-    # Get total count for pagination
-    recent_quotes_total = db.exec(
-        select(func.count(Quote.id)).where(Quote.user_id == current_user.id)
-    ).one()
-
-    # Calculate offset
-    offset = (page - 1) * limit
-
-    recent = db.exec(
-        select(Quote, Client.name)
-        .join(Client, Quote.client_id == Client.id, isouter=True)
-        .where(Quote.user_id == current_user.id)
-        .order_by(Quote.created_at.desc())
-        .offset(offset)
-        .limit(limit)
-    ).all()
-    
-    recent_quotes = [
-        RecentQuote(
-            id=str(q.id),
-            quote_number=q.quote_number,
-            client_name=client_name,
-            status=str(q.status.value) if hasattr(q.status, "value") else str(q.status),
-            currency=str(q.currency.value) if hasattr(q.currency, "value") else str(q.currency),
-            total=float(q.total),
-            created_at=q.created_at.isoformat()
-        )
-        for q, client_name in recent
-    ]
+    # Recent Quotes are now fetched separately by the RecentQuotes component
+    # We return empty here to satisfy the schema until we rigorously cleanup
+    recent_quotes = []
+    recent_quotes_total = 0
     
     today = datetime.now()
     current_year = today.year

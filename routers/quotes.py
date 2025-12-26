@@ -101,15 +101,27 @@ async def list_quotes(
 ):
     """List all quotes for the current user with pagination."""
     try:
-        query = select(Quote).where(Quote.user_id == current_user.id)
+        query = (
+            select(Quote, Client.name)
+            .join(Client, Quote.client_id == Client.id, isouter=True)
+            .where(Quote.user_id == current_user.id)
+        )
         count_query = select(func.count()).select_from(query.subquery())
         total = db.exec(count_query).one()
         
         offset = (page - 1) * limit
         statement = query.order_by(Quote.created_at.desc()).offset(offset).limit(limit)
-        quotes = db.exec(statement).all()
+        results = db.exec(statement).all()
         
-        return QuoteListResponse(quotes=quotes, total=total)
+        quotes_with_client = []
+        for quote, client_name in results:
+            # quote.model_dump() excludes relationships like 'items' by default
+            quote_dict = quote.model_dump()
+            quote_dict["items"] = quote.items # Explicitly include items
+            quote_dict["client_name"] = client_name
+            quotes_with_client.append(quote_dict)
+            
+        return QuoteListResponse(quotes=quotes_with_client, total=total)
     except Exception as e:
         print(f"Error listing quotes: {e}")
         raise HTTPException(status_code=500, detail=str(e))

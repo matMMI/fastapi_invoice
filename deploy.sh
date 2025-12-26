@@ -17,6 +17,16 @@ if [[ -n "$COMMIT_MSG" ]]; then
     INTERACTIVE=false
 fi
 
+# 0. RUN TESTS
+echo "🧪 Exécution des tests unitaires..."
+./venv/bin/python -m pytest tests/ -v --tb=short
+if [[ $? -ne 0 ]]; then
+    echo "❌ Tests échoués! Déploiement annulé."
+    exit 1
+fi
+echo "✅ Tous les tests passent!"
+echo ""
+
 # 1. GIT OPERATIONS
 if [[ -z $(git status -s) ]]; then
     echo "ℹ️  Aucun changement à commiter"

@@ -1,7 +1,7 @@
 """API routes for client management."""
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlmodel import Session, select, func
+from sqlmodel import Session, select, func, or_
 from db.session import get_session
 from core.security import get_current_user
 from models.user import User
@@ -44,8 +44,10 @@ async def list_clients(
     if search:
         search_filter = f"%{search}%"
         query = query.where(
-            (Client.name.ilike(search_filter)) |
-            (Client.email.ilike(search_filter))
+            or_(
+                Client.name.ilike(search_filter),
+                Client.email.ilike(search_filter)
+            )
         )
     
     # Get total count first

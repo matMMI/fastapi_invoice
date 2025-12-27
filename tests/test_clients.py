@@ -102,3 +102,58 @@ def test_cannot_access_other_users_clients(authenticated_client, session: Sessio
     assert response.status_code == 200
     data = response.json()
     assert len(data["clients"]) == 0  # Should not see other user's clients
+
+def test_search_clients(authenticated_client, session: Session):
+    """Test searching clients by name or email."""
+    client, user = authenticated_client
+
+    # Create clients
+    # 1. Matches "Alpha" in name
+    c1 = Client(
+        user_id=user.id,
+        name="Alpha Industries",
+        email="info@alpha.com"
+    )
+    session.add(c1)
+
+    # 2. Matches "Alpha" in email
+    c2 = Client(
+        user_id=user.id,
+        name="Beta Corp",
+        email="contact@alpha-beta.com"
+    )
+    session.add(c2)
+
+    # 3. No match
+    c3 = Client(
+        user_id=user.id,
+        name="Gamma Inc",
+        email="gamma@test.com"
+    )
+    session.add(c3)
+    session.commit()
+
+    # Search by "Alpha" (matches name of c1 and email of c2)
+    res = client.get("/api/clients?search=Alpha")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total"] == 2
+    assert len(data["clients"]) == 2
+    
+    names = {c["name"] for c in data["clients"]}
+    assert "Alpha Industries" in names
+    assert "Beta Corp" in names
+
+    # Search by "Gamma" (matches c3 only)
+    res = client.get("/api/clients?search=Gamma")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total"] == 1
+    assert data["clients"][0]["name"] == "Gamma Inc"
+
+    # Search with no results
+    res = client.get("/api/clients?search=Omega")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total"] == 0
+    assert len(data["clients"]) == 0

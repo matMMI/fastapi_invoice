@@ -1,7 +1,7 @@
 """API routes for quote management."""
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlmodel import Session, select, func
+from sqlmodel import Session, select, func, or_
 from db.session import get_session
 from core.security import get_current_user
 from models.user import User
@@ -96,16 +96,27 @@ async def create_quote(
 async def list_quotes(
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(10, ge=1, le=100, description="Items per page"),
+    search: str | None = Query(None, description="Search by client name or quote number"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_session)
 ):
-    """List all quotes for the current user with pagination."""
+    """List all quotes for the current user with pagination and optional search."""
     try:
         query = (
             select(Quote, Client.name)
             .join(Client, Quote.client_id == Client.id, isouter=True)
             .where(Quote.user_id == current_user.id)
         )
+        
+        if search:
+            search_term = f"%{search}%"
+            query = query.where(
+                or_(
+                    Client.name.ilike(search_term),
+                    Quote.quote_number.ilike(search_term)
+                )
+            )
+
         count_query = select(func.count()).select_from(query.subquery())
         total = db.exec(count_query).one()
         

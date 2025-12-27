@@ -1,5 +1,3 @@
-"""Tests for quote management API."""
-
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
@@ -15,7 +13,6 @@ from models.auth import Session as AuthSession
 
 @pytest.fixture
 def authenticated_client(client: TestClient, session: Session):
-    """Create an authenticated test client."""
     # Create user
     user = User(
         id="test-user-id",
@@ -53,7 +50,6 @@ def authenticated_client(client: TestClient, session: Session):
 
 
 def test_create_quote(authenticated_client, session: Session):
-    """Test creating a new quote with items and verification of calculations."""
     client, user, db_client = authenticated_client
     
     payload = {
@@ -85,24 +81,13 @@ def test_create_quote(authenticated_client, session: Session):
     assert data["client_id"] == db_client.id
     assert data["user_id"] == user.id
     assert len(data["items"]) == 2
-    
-    # Verify Calculations
-    # Item 1: 2 * 100 = 200
-    # Item 2: 1 * 50 = 50
-    # Subtotal: 250
-    # Tax: 250 * 20% = 50
-    # Total: 300
-    
     assert Decimal(str(data["subtotal"])) == Decimal("250.00")
     assert Decimal(str(data["tax_amount"])) == Decimal("50.00")
     assert Decimal(str(data["total"])) == Decimal("300.00")
 
 
 def test_list_quotes(authenticated_client, session: Session):
-    """Test listing quotes with user isolation."""
     client, user, db_client = authenticated_client
-    
-    # Create a quote for the test user
     quote1 = Quote(
         user_id=user.id,
         client_id=db_client.id,
@@ -177,3 +162,70 @@ def test_access_other_user_quote(authenticated_client, session: Session):
     
     response = client.get(f"/api/quotes/{other_quote.id}")
     assert response.status_code == 404
+
+def test_search_quotes(authenticated_client, session: Session):
+    """Test searching quotes by client name and quote number."""
+    client, user, db_client = authenticated_client
+
+    # Create another client
+    client2 = Client(
+        id="client-2",
+        user_id=user.id,
+        name="Dupont SA",
+        email="dupont@test.com"
+    )
+    session.add(client2)
+
+    # Create quotes
+    # 1. Matches client name "Test Client" (from fixture)
+    q1 = Quote(
+        user_id=user.id,
+        client_id=db_client.id,
+        quote_number="Q-001",
+        status=QuoteStatus.DRAFT,
+        subtotal=Decimal("100"),
+        total=Decimal("120")
+    )
+    session.add(q1)
+
+    # 2. Matches quote number "Q-SEARCH"
+    q2 = Quote(
+        user_id=user.id,
+        client_id=client2.id,
+        quote_number="Q-SEARCH-ME",
+        status=QuoteStatus.DRAFT,
+        subtotal=Decimal("100"),
+        total=Decimal("120")
+    )
+    session.add(q2)
+
+    # 3. No match
+    q3 = Quote(
+        user_id=user.id,
+        client_id=client2.id,
+        quote_number="Q-OTHER",
+        status=QuoteStatus.DRAFT,
+        subtotal=Decimal("100"),
+        total=Decimal("120")
+    )
+    session.add(q3)
+    session.commit()
+
+    # Search by part of Client Name "Test"
+    res = client.get("/api/quotes?search=Test")
+    assert res.status_code == 200
+    data = res.json()
+    assert len(data["quotes"]) == 1
+    assert data["quotes"][0]["quote_number"] == "Q-001"
+
+    # Search by part of Quote Number "SEARCH"
+    res = client.get("/api/quotes?search=SEARCH")
+    assert res.status_code == 200
+    data = res.json()
+    assert len(data["quotes"]) == 1
+    assert data["quotes"][0]["quote_number"] == "Q-SEARCH-ME"
+
+    # Search with no results
+    res = client.get("/api/quotes?search=XYZ")
+    assert res.status_code == 200
+    assert len(res.json()["quotes"]) == 0

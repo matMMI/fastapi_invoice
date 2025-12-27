@@ -86,6 +86,64 @@ def test_create_quote(authenticated_client, session: Session):
     assert Decimal(str(data["total"])) == Decimal("300.00")
 
 
+def test_get_quote(authenticated_client, session: Session):
+    """Test fetching a single quote by ID returns all expected fields."""
+    client, user, db_client = authenticated_client
+    
+    # Create a quote with items
+    quote = Quote(
+        id="test-quote-get",
+        user_id=user.id,
+        client_id=db_client.id,
+        quote_number="Q-GET-001",
+        status=QuoteStatus.DRAFT,
+        currency=Currency.EUR,
+        tax_rate=Decimal("20.00"),
+        subtotal=Decimal("100.00"),
+        tax_amount=Decimal("20.00"),
+        total=Decimal("120.00"),
+        notes="Test notes"
+    )
+    session.add(quote)
+    
+    item = QuoteItem(
+        quote_id=quote.id,
+        description="Test Service",
+        quantity=Decimal("2"),
+        unit_price=Decimal("50.00"),
+        total=Decimal("100.00"),
+        order=1
+    )
+    session.add(item)
+    session.commit()
+    
+    response = client.get(f"/api/quotes/{quote.id}")
+    assert response.status_code == 200
+    data = response.json()
+    
+    # Verify all essential fields
+    assert data["id"] == "test-quote-get"
+    assert data["quote_number"] == "Q-GET-001"
+    assert data["client_id"] == db_client.id
+    assert data["user_id"] == user.id
+    assert data["status"] == "Draft"
+    assert data["currency"] == "EUR"
+    assert Decimal(str(data["subtotal"])) == Decimal("100.00")
+    assert Decimal(str(data["tax_rate"])) == Decimal("20.00")
+    assert Decimal(str(data["tax_amount"])) == Decimal("20.00")
+    assert Decimal(str(data["total"])) == Decimal("120.00")
+    assert data["notes"] == "Test notes"
+    
+    # Verify items are included
+    assert len(data["items"]) == 1
+    assert data["items"][0]["description"] == "Test Service"
+    assert Decimal(str(data["items"][0]["quantity"])) == Decimal("2")
+    assert Decimal(str(data["items"][0]["unit_price"])) == Decimal("50.00")
+    
+    # Verify client_name is included (from JOIN)
+    assert data["client_name"] == "Test Client"
+
+
 def test_list_quotes(authenticated_client, session: Session):
     client, user, db_client = authenticated_client
     quote1 = Quote(
@@ -229,3 +287,40 @@ def test_search_quotes(authenticated_client, session: Session):
     res = client.get("/api/quotes?search=XYZ")
     assert res.status_code == 200
     assert len(res.json()["quotes"]) == 0
+
+
+def test_client_name_propagation(authenticated_client, session: Session):
+    """Test that updating a client's name is reflected in quote responses."""
+    client, user, db_client = authenticated_client
+    
+    # Create a quote linked to the client
+    quote = Quote(
+        id="quote-name-prop",
+        user_id=user.id,
+        client_id=db_client.id,
+        quote_number="Q-NAME-PROP",
+        status=QuoteStatus.DRAFT
+    )
+    session.add(quote)
+    session.commit()
+    
+    # Verify initial client_name
+    response = client.get(f"/api/quotes/{quote.id}")
+    assert response.status_code == 200
+    assert response.json()["client_name"] == "Test Client"
+    
+    # Update the client's name directly in DB
+    db_client.name = "Updated Client Name"
+    session.add(db_client)
+    session.commit()
+    
+    # Verify get_quote returns updated name
+    response = client.get(f"/api/quotes/{quote.id}")
+    assert response.status_code == 200
+    assert response.json()["client_name"] == "Updated Client Name"
+    
+    # Verify list_quotes also returns updated name
+    response = client.get("/api/quotes")
+    assert response.status_code == 200
+    quotes = response.json()["quotes"]
+    assert any(q["client_name"] == "Updated Client Name" for q in quotes)

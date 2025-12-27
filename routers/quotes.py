@@ -143,11 +143,24 @@ async def get_quote(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_session)
 ):
-    """Get a specific quote."""
-    quote = db.get(Quote, quote_id)
-    if not quote or quote.user_id != current_user.id:
+    """Get a specific quote with client name."""
+    # Query with JOIN to get client_name
+    statement = (
+        select(Quote, Client.name)
+        .join(Client, Quote.client_id == Client.id, isouter=True)
+        .where(Quote.id == quote_id)
+        .where(Quote.user_id == current_user.id)
+    )
+    result = db.exec(statement).first()
+    
+    if not result:
         raise HTTPException(status_code=404, detail="Quote not found")
-    return quote
+    
+    quote, client_name = result
+    quote_dict = quote.model_dump()
+    quote_dict["items"] = quote.items
+    quote_dict["client_name"] = client_name
+    return quote_dict
 
 @router.put("/quotes/{quote_id}", response_model=QuoteResponse)
 async def update_quote(

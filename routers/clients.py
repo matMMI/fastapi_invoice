@@ -42,11 +42,12 @@ async def list_clients(
     query = select(Client).where(Client.user_id == current_user.id)
     
     if search:
-        search_filter = f"%{search}%"
+        safe_search = search.replace("%", "\\%").replace("_", "\\_")
+        search_filter = f"%{safe_search}%"
         query = query.where(
             or_(
-                Client.name.ilike(search_filter),
-                Client.email.ilike(search_filter)
+                Client.name.ilike(search_filter, escape="\\"),
+                Client.email.ilike(search_filter, escape="\\")
             )
         )
     

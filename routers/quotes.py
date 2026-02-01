@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlmodel import Session, select, func, or_
+import logging
 from db.session import get_session
 from core.security import get_current_user
 from models.user import User
@@ -11,6 +12,8 @@ from models.enums import QuoteStatus, TaxStatus
 from schemas.quote import QuoteCreate, QuoteUpdate, QuoteResponse, QuoteListResponse
 from datetime import datetime, timezone
 from decimal import Decimal
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -109,11 +112,12 @@ async def list_quotes(
         )
         
         if search:
-            search_term = f"%{search}%"
+            safe_search = search.replace("%", "\\%").replace("_", "\\_")
+            search_term = f"%{safe_search}%"
             query = query.where(
                 or_(
-                    Client.name.ilike(search_term),
-                    Quote.quote_number.ilike(search_term)
+                    Client.name.ilike(search_term, escape="\\"),
+                    Quote.quote_number.ilike(search_term, escape="\\")
                 )
             )
 
@@ -134,8 +138,8 @@ async def list_quotes(
             
         return QuoteListResponse(quotes=quotes_with_client, total=total)
     except Exception as e:
-        print(f"Error listing quotes: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error listing quotes: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Erreur lors de la récupération des devis")
 
 @router.get("/quotes/{quote_id}", response_model=QuoteResponse)
 async def get_quote(

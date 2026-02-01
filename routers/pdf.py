@@ -5,12 +5,16 @@ from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 from sqlalchemy.orm import selectinload
 from io import BytesIO
+import logging
 from db.session import get_session
 from core.security import get_current_user
 from models.user import User
 from models.quote import Quote
 from models.settings import Settings
 from services.pdf_generator import generate_quote_pdf
+
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 def get_user_settings(session: Session, user_id: str) -> Settings:
     statement = select(Settings).where(Settings.user_id == user_id)
@@ -44,10 +48,11 @@ async def generate_pdf(
         settings = get_user_settings(db, current_user.id)
         pdf_bytes = generate_quote_pdf(quote, settings, current_user)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate PDF: {str(e)}")
-    
+        logger.error(f"PDF generation failed for quote {quote_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Erreur lors de la génération du PDF")
+
     filename = f"{quote.quote_number}.pdf"
-    
+
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -76,10 +81,11 @@ async def get_pdf(
         settings = get_user_settings(db, current_user.id)
         pdf_bytes = generate_quote_pdf(quote, settings, current_user)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate PDF: {str(e)}")
-    
+        logger.error(f"PDF generation failed for quote {quote_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Erreur lors de la génération du PDF")
+
     filename = f"{quote.quote_number}.pdf"
-    
+
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",

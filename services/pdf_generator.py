@@ -11,6 +11,8 @@ from decimal import Decimal
 from datetime import datetime
 import os
 import urllib.request
+import urllib.parse
+import logging
 
 from models.quote import Quote
 from models.settings import Settings
@@ -18,6 +20,27 @@ from models.enums import QuoteStatus
 
 from models.user import User
 from models.enums import TaxStatus
+
+logger = logging.getLogger(__name__)
+
+BLOCKED_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "[::1]"}
+BLOCKED_IP_PREFIXES = ("10.", "172.16.", "172.17.", "172.18.", "172.19.",
+                       "172.20.", "172.21.", "172.22.", "172.23.", "172.24.",
+                       "172.25.", "172.26.", "172.27.", "172.28.", "172.29.",
+                       "172.30.", "172.31.", "192.168.", "169.254.", "100.64.")
+
+def _is_safe_url(url: str) -> bool:
+    """Validate that a URL does not point to internal/private resources."""
+    parsed = urllib.parse.urlparse(url)
+    hostname = (parsed.hostname or "").lower()
+    if hostname in BLOCKED_HOSTS:
+        return False
+    if any(hostname.startswith(prefix) for prefix in BLOCKED_IP_PREFIXES):
+        return False
+    if parsed.scheme not in ("http", "https"):
+        return False
+    return True
+
 
 def generate_quote_pdf(quote: Quote, settings: Settings, user: User) -> bytes:
     buffer = BytesIO()
@@ -75,9 +98,12 @@ def generate_quote_pdf(quote: Quote, settings: Settings, user: User) -> bytes:
             logo_path = settings.company_logo_url
             img = None
             if logo_path.startswith("http"):
+                if not _is_safe_url(logo_path):
+                    logger.warning(f"Blocked unsafe logo URL: {logo_path}")
+                    raise ValueError("URL de logo non autorisée")
                 req = urllib.request.Request(logo_path, headers={'User-Agent': 'Mozilla/5.0'})
                 with urllib.request.urlopen(req, timeout=2) as response:
-                    img_data = response.read()
+                    img_data = response.read(5 * 1024 * 1024)  # 5MB max
                     img_stream = BytesIO(img_data)
                     img = Image(img_stream, width=1*cm, height=1*cm, kind='proportional')
             elif os.path.exists(logo_path):
@@ -88,7 +114,7 @@ def generate_quote_pdf(quote: Quote, settings: Settings, user: User) -> bytes:
                 left_column.append(img)
                 left_column.append(Spacer(1, 0.3*cm))
         except Exception as e:
-            print(f"Warning logo: {e}")
+            logger.warning(f"Logo loading failed: {e}")
             
     left_column.append(Paragraph(company_name, company_name_style))
     if company_address:
@@ -247,7 +273,8 @@ def generate_quote_pdf(quote: Quote, settings: Settings, user: User) -> bytes:
                 
             elements.append(Paragraph(" - ".join(details), ParagraphStyle('SigDetails', parent=normal_style, fontSize=8, textColor=colors.gray)))
         except Exception as e:
-            elements.append(Paragraph(f"[Erreur signature: {e}]", normal_style))
+            logger.error(f"Signature rendering failed: {e}")
+            elements.append(Paragraph("[Signature non disponible]", normal_style))
         
     # --- Footer Custom Text ---
     if settings.pdf_footer_text:

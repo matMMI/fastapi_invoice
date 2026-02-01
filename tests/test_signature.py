@@ -1,6 +1,7 @@
 """Tests for quote signature workflow."""
 
 import pytest
+import base64
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 from decimal import Decimal
@@ -11,6 +12,15 @@ from models.client import Client
 from models.quote import Quote
 from models.enums import QuoteStatus
 from models.auth import Session as AuthSession
+
+# Minimal valid 1x1 white PNG (67 bytes)
+_MINI_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
+    b"\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00"
+    b"\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00\x00\x01\x01\x00"
+    b"\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+VALID_SIGNATURE_DATA = f"data:image/png;base64,{base64.b64encode(_MINI_PNG).decode()}"
 
 
 @pytest.fixture
@@ -115,7 +125,7 @@ def test_sign_action(signature_setup, session: Session):
     
     payload = {
         "signer_name": "Jean Dupont",
-        "signature_data": "base64-fake-image-data..."
+        "signature_data": VALID_SIGNATURE_DATA
     }
     
     response = client.post(f"/api/public/quotes/token-to-sign/sign", json=payload)

@@ -3,9 +3,14 @@ Share and sign quotes - public endpoints for electronic signature.
 """
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlmodel import Session, select
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from datetime import datetime, timezone, timedelta
 from uuid import uuid4
+import base64
+import logging
+
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from db.session import get_session
 from models.quote import Quote, QuoteItem
@@ -14,6 +19,8 @@ from models.enums import QuoteStatus
 from core.security import get_current_user
 from models.user import User
 
+logger = logging.getLogger(__name__)
+limiter = Limiter(key_func=get_remote_address)
 
 router = APIRouter(tags=["share"])
 
@@ -53,8 +60,22 @@ class PublicQuoteResponse(BaseModel):
 
 
 class SignRequest(BaseModel):
-    signer_name: str
-    signature_data: str  # Base64 PNG
+    signer_name: str = Field(..., min_length=1, max_length=200)
+    signature_data: str = Field(..., max_length=500_000)  # ~375KB decoded max
+
+    @field_validator("signature_data")
+    @classmethod
+    def validate_signature_data(cls, v: str) -> str:
+        base64_data = v.split(",", 1)[1] if "," in v else v
+        try:
+            decoded = base64.b64decode(base64_data)
+        except Exception:
+            raise ValueError("Encodage base64 invalide")
+        if len(decoded) > 500_000:
+            raise ValueError("Image de signature trop volumineuse (max 500Ko)")
+        if not decoded.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise ValueError("La signature doit être une image PNG")
+        return v
 
 
 class SignResponse(BaseModel):
@@ -102,7 +123,9 @@ async def generate_share_link(
 # ============ Public Endpoints (No Auth) ============
 
 @router.get("/public/quotes/{token}", response_model=PublicQuoteResponse)
+@limiter.limit("10/minute")
 async def get_public_quote(
+    request: Request,
     token: str,
     db: Session = Depends(get_session)
 ):
@@ -114,10 +137,14 @@ async def get_public_quote(
     if not quote:
         raise HTTPException(status_code=404, detail="Devis non trouvé ou lien invalide")
     
-    # Expiration check removed
-    # if quote.share_token_expires_at and quote.share_token_expires_at < datetime.now(timezone.utc):
-    #     raise HTTPException(status_code=410, detail="Ce lien de partage a expiré")
-    
+    # Allow permanent access to signed quotes, enforce expiration for unsigned
+    if not quote.signed_at and quote.share_token_expires_at:
+        expires_at = quote.share_token_expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at < datetime.now(timezone.utc):
+            raise HTTPException(status_code=410, detail="Ce lien de partage a expiré")
+
     # Get client info
     client = db.exec(select(Client).where(Client.id == quote.client_id)).first()
     if not client:
@@ -158,6 +185,7 @@ async def get_public_quote(
 
 
 @router.post("/public/quotes/{token}/sign", response_model=SignResponse)
+@limiter.limit("3/minute")
 async def sign_quote(
     token: str,
     sign_data: SignRequest,
@@ -185,11 +213,17 @@ async def sign_quote(
     if quote.signed_at:
         raise HTTPException(status_code=400, detail="Ce devis a déjà été signé")
     
-    # Get client IP
+    # Get client IP — prefer X-Real-IP (set by Vercel/trusted proxy), fallback to direct
     client_ip = request.client.host if request.client else "unknown"
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        client_ip = forwarded.split(",")[0].strip()
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        client_ip = real_ip.strip()
+    else:
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            # Behind trusted proxy: use the rightmost non-proxy IP
+            ips = [ip.strip() for ip in forwarded.split(",")]
+            client_ip = ips[0] if len(ips) == 1 else ips[-2]
     
     # Save signature
     now = datetime.now(timezone.utc)
@@ -212,7 +246,9 @@ async def sign_quote(
 
 
 @router.get("/public/quotes/{token}/pdf")
+@limiter.limit("5/minute")
 async def get_public_quote_pdf(
+    request: Request,
     token: str,
     db: Session = Depends(get_session)
 ):
@@ -232,11 +268,15 @@ async def get_public_quote_pdf(
     if not quote:
         raise HTTPException(status_code=404, detail="Devis non trouvé ou lien invalide")
     
-    
-    # Expiration check removed to allow permanent access to signed quotes
-    # if quote.share_token_expires_at and quote.share_token_expires_at < datetime.now(timezone.utc):
-    #     raise HTTPException(status_code=410, detail="Ce lien de partage a expiré")
-    
+
+    # Allow permanent access to signed quotes, enforce expiration for unsigned
+    if not quote.signed_at and quote.share_token_expires_at:
+        expires_at = quote.share_token_expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at < datetime.now(timezone.utc):
+            raise HTTPException(status_code=410, detail="Ce lien de partage a expiré")
+
     # Get user settings for PDF customization
     settings = db.exec(select(Settings).where(Settings.user_id == quote.user_id)).first()
     if not settings:
@@ -252,7 +292,8 @@ async def get_public_quote_pdf(
     try:
         pdf_bytes = generate_quote_pdf(quote, settings, user)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate PDF: {str(e)}")
+        logger.error(f"PDF generation failed for quote {quote.id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Erreur lors de la génération du PDF")
     
     filename = f"Devis_{quote.quote_number}.pdf"
     

@@ -239,8 +239,8 @@ def generate_quote_pdf(quote: Quote, settings: Settings, user: User) -> bytes:
         elements.append(Paragraph(mention, legal_style))
         
     # Legal Mentions (Penalties)
-    penalties = settings.late_payment_penalties or "3 fois le taux d'intérêt légal"
-    elements.append(Paragraph(f"Pénalités de retard : {penalties}", legal_style))
+    if settings.late_payment_penalties:
+        elements.append(Paragraph(f"Pénalités de retard : {settings.late_payment_penalties}", legal_style))
     elements.append(Paragraph("Indemnité forfaitaire pour frais de recouvrement en cas de retard de paiement : 40€", legal_style))
     elements.append(Paragraph("Pas d'escompte pour paiement anticipé.", legal_style))
 
@@ -258,7 +258,7 @@ def generate_quote_pdf(quote: Quote, settings: Settings, user: User) -> bytes:
             
             sig_bytes = base64.b64decode(sig_data)
             sig_stream = BytesIO(sig_bytes)
-            sig_img = Image(sig_stream, width=4*cm, height=1.5*cm, kind='proportional')
+            sig_img = Image(sig_stream, width=8*cm, height=3*cm, kind='proportional')
             sig_img.hAlign = 'LEFT'
             elements.append(sig_img)
             

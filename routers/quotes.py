@@ -183,10 +183,12 @@ async def update_quote(
         raise HTTPException(status_code=403, detail="Cannot modify a paid invoice (Inalterability rule).")
 
     # Update header fields
-    if quote_data.client_id: quote.client_id = quote_data.client_id
-    if quote_data.quote_number: quote.quote_number = quote_data.quote_number
-    if quote_data.currency: quote.currency = quote_data.currency
-    if quote_data.status: quote.status = quote_data.status
+    if quote_data.client_id is not None: quote.client_id = quote_data.client_id
+    if quote_data.quote_number is not None: quote.quote_number = quote_data.quote_number
+    if quote_data.currency is not None: quote.currency = quote_data.currency
+    if quote_data.status is not None: quote.status = quote_data.status
+    if quote_data.notes is not None: quote.notes = quote_data.notes
+    if quote_data.payment_terms is not None: quote.payment_terms = quote_data.payment_terms
     
     # Update Payment Status (Allow setting is_paid via update)
     # Note: QuoteUpdate schema needs to support is_paid if we want frontend to set it.
@@ -216,9 +218,9 @@ async def update_quote(
             
             if item_in.id and item_in.id in existing_items:
                 existing_item = existing_items[item_in.id]
-                if item_in.description: existing_item.description = item_in.description
-                if item_in.quantity: existing_item.quantity = item_in.quantity
-                if item_in.unit_price: existing_item.unit_price = item_in.unit_price
+                if item_in.description is not None: existing_item.description = item_in.description
+                if item_in.quantity is not None: existing_item.quantity = item_in.quantity
+                if item_in.unit_price is not None: existing_item.unit_price = item_in.unit_price
                 if item_in.order is not None: existing_item.order = item_in.order
                 existing_item.total = existing_item.quantity * existing_item.unit_price
                 new_items_list.append(existing_item)

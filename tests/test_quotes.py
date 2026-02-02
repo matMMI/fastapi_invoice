@@ -289,6 +289,261 @@ def test_search_quotes(authenticated_client, session: Session):
     assert len(res.json()["quotes"]) == 0
 
 
+def test_update_quote_items_with_id(authenticated_client, session: Session):
+    """Test that updating a quote with item IDs preserves existing items."""
+    client, user, db_client = authenticated_client
+
+    quote = Quote(
+        id="quote-update-items",
+        user_id=user.id,
+        client_id=db_client.id,
+        quote_number="Q-UPD-ITEMS",
+        status=QuoteStatus.DRAFT,
+        tax_status=TaxStatus.ASSUJETTI,
+        tax_rate=Decimal("20.00"),
+    )
+    session.add(quote)
+    session.commit()
+
+    item = QuoteItem(
+        id="item-existing",
+        quote_id=quote.id,
+        description="Original Service",
+        quantity=Decimal("2"),
+        unit_price=Decimal("100.00"),
+        total=Decimal("200.00"),
+        order=0,
+    )
+    session.add(item)
+    session.commit()
+
+    response = client.put(f"/api/quotes/{quote.id}", json={
+        "items": [
+            {
+                "id": "item-existing",
+                "description": "Updated Service",
+                "quantity": 3,
+                "unit_price": "150.00",
+                "order": 0,
+            }
+        ]
+    })
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["items"]) == 1
+    assert data["items"][0]["id"] == "item-existing"
+    assert data["items"][0]["description"] == "Updated Service"
+    assert Decimal(str(data["items"][0]["quantity"])) == Decimal("3")
+    assert Decimal(str(data["items"][0]["unit_price"])) == Decimal("150.00")
+
+
+def test_update_quote_items_without_id(authenticated_client, session: Session):
+    """Test that updating with new items (no id) creates them and removes old ones."""
+    client, user, db_client = authenticated_client
+
+    quote = Quote(
+        id="quote-new-items",
+        user_id=user.id,
+        client_id=db_client.id,
+        quote_number="Q-NEW-ITEMS",
+        status=QuoteStatus.DRAFT,
+        tax_status=TaxStatus.ASSUJETTI,
+        tax_rate=Decimal("20.00"),
+    )
+    session.add(quote)
+    session.commit()
+
+    old_item = QuoteItem(
+        id="item-to-remove",
+        quote_id=quote.id,
+        description="Old Service",
+        quantity=Decimal("1"),
+        unit_price=Decimal("50.00"),
+        total=Decimal("50.00"),
+        order=0,
+    )
+    session.add(old_item)
+    session.commit()
+
+    response = client.put(f"/api/quotes/{quote.id}", json={
+        "items": [
+            {
+                "description": "Brand New Service",
+                "quantity": 1,
+                "unit_price": "200.00",
+                "order": 0,
+            }
+        ]
+    })
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["items"]) == 1
+    assert data["items"][0]["description"] == "Brand New Service"
+    assert data["items"][0]["id"] != "item-to-remove"
+
+    # Verify old item is deleted
+    session.expire_all()
+    old = session.get(QuoteItem, "item-to-remove")
+    assert old is None
+
+
+def test_update_quote_item_zero_unit_price(authenticated_client, session: Session):
+    """Regression: unit_price=0 must be saved (not ignored by falsy check)."""
+    client, user, db_client = authenticated_client
+
+    quote = Quote(
+        id="quote-zero-price",
+        user_id=user.id,
+        client_id=db_client.id,
+        quote_number="Q-ZERO-PRICE",
+        status=QuoteStatus.DRAFT,
+        tax_status=TaxStatus.ASSUJETTI,
+        tax_rate=Decimal("20.00"),
+    )
+    session.add(quote)
+    session.commit()
+
+    item = QuoteItem(
+        id="item-zero-price",
+        quote_id=quote.id,
+        description="Expensive Service",
+        quantity=Decimal("1"),
+        unit_price=Decimal("500.00"),
+        total=Decimal("500.00"),
+        order=0,
+    )
+    session.add(item)
+    session.commit()
+
+    # Update unit_price to 0
+    response = client.put(f"/api/quotes/{quote.id}", json={
+        "items": [
+            {
+                "id": "item-zero-price",
+                "description": "Free Service",
+                "quantity": 1,
+                "unit_price": "0.00",
+                "order": 0,
+            }
+        ]
+    })
+
+    assert response.status_code == 200
+    data = response.json()
+    assert Decimal(str(data["items"][0]["unit_price"])) == Decimal("0.00")
+    assert Decimal(str(data["total"])) == Decimal("0.00")
+
+
+def test_update_quote_recalculates_totals(authenticated_client, session: Session):
+    """Test that updating items recalculates subtotal, tax, and total."""
+    client, user, db_client = authenticated_client
+
+    quote = Quote(
+        id="quote-recalc",
+        user_id=user.id,
+        client_id=db_client.id,
+        quote_number="Q-RECALC",
+        status=QuoteStatus.DRAFT,
+        tax_status=TaxStatus.ASSUJETTI,
+        tax_rate=Decimal("20.00"),
+        subtotal=Decimal("100.00"),
+        tax_amount=Decimal("20.00"),
+        total=Decimal("120.00"),
+    )
+    session.add(quote)
+    session.commit()
+
+    item = QuoteItem(
+        id="item-recalc",
+        quote_id=quote.id,
+        description="Service",
+        quantity=Decimal("1"),
+        unit_price=Decimal("100.00"),
+        total=Decimal("100.00"),
+        order=0,
+    )
+    session.add(item)
+    session.commit()
+
+    response = client.put(f"/api/quotes/{quote.id}", json={
+        "items": [
+            {
+                "id": "item-recalc",
+                "description": "Service",
+                "quantity": 5,
+                "unit_price": "200.00",
+                "order": 0,
+            }
+        ]
+    })
+
+    assert response.status_code == 200
+    data = response.json()
+    assert Decimal(str(data["subtotal"])) == Decimal("1000.00")
+    assert Decimal(str(data["tax_amount"])) == Decimal("200.00")
+    assert Decimal(str(data["total"])) == Decimal("1200.00")
+
+
+def test_update_paid_quote_forbidden(authenticated_client, session: Session):
+    """Test that updating a paid quote is forbidden (inalterability rule)."""
+    client, user, db_client = authenticated_client
+
+    quote = Quote(
+        id="quote-paid",
+        user_id=user.id,
+        client_id=db_client.id,
+        quote_number="Q-PAID",
+        status=QuoteStatus.ACCEPTED,
+        is_paid=True,
+    )
+    session.add(quote)
+    session.commit()
+
+    response = client.put(f"/api/quotes/{quote.id}", json={
+        "notes": "Try to modify"
+    })
+
+    assert response.status_code == 403
+
+
+def test_update_quote_notes_and_payment_terms(authenticated_client, session: Session):
+    """Regression: notes and payment_terms must be saved on update."""
+    client, user, db_client = authenticated_client
+
+    quote = Quote(
+        id="quote-notes",
+        user_id=user.id,
+        client_id=db_client.id,
+        quote_number="Q-NOTES",
+        status=QuoteStatus.DRAFT,
+    )
+    session.add(quote)
+    session.commit()
+
+    # Update with notes and payment_terms
+    response = client.put(f"/api/quotes/{quote.id}", json={
+        "notes": "Merci pour votre confiance",
+        "payment_terms": "Paiement à 30 jours",
+    })
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["notes"] == "Merci pour votre confiance"
+    assert data["payment_terms"] == "Paiement à 30 jours"
+
+    # Update notes to empty string (should clear them)
+    response = client.put(f"/api/quotes/{quote.id}", json={
+        "notes": "",
+    })
+    assert response.status_code == 200
+    data = response.json()
+    assert data["notes"] == ""
+    # payment_terms should be preserved (not sent = not modified)
+    assert data["payment_terms"] == "Paiement à 30 jours"
+
+
 def test_client_name_propagation(authenticated_client, session: Session):
     """Test that updating a client's name is reflected in quote responses."""
     client, user, db_client = authenticated_client

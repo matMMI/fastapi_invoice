@@ -5,10 +5,8 @@ from reportlab.lib import colors
 from reportlab.lib.units import cm
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_RIGHT, TA_LEFT, TA_CENTER
+from reportlab.lib.enums import TA_RIGHT, TA_CENTER
 from io import BytesIO
-from decimal import Decimal
-from datetime import datetime
 import os
 import urllib.request
 import urllib.parse
@@ -97,12 +95,18 @@ def generate_quote_pdf(quote: Quote, settings: Settings, user: User) -> bytes:
         try:
             logo_path = settings.company_logo_url
             img = None
+            # Resolve relative paths (e.g. /logo.png) via the frontend URL
+            is_internal_logo = False
+            if logo_path.startswith("/") and not os.path.exists(logo_path):
+                frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+                logo_path = f"{frontend_url.rstrip('/')}{logo_path}"
+                is_internal_logo = True
             if logo_path.startswith("http"):
-                if not _is_safe_url(logo_path):
+                if not is_internal_logo and not _is_safe_url(logo_path):
                     logger.warning(f"Blocked unsafe logo URL: {logo_path}")
                     raise ValueError("URL de logo non autorisée")
                 req = urllib.request.Request(logo_path, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req, timeout=2) as response:
+                with urllib.request.urlopen(req, timeout=5) as response:
                     img_data = response.read(5 * 1024 * 1024)  # 5MB max
                     img_stream = BytesIO(img_data)
                     img = Image(img_stream, width=1*cm, height=1*cm, kind='proportional')

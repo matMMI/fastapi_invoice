@@ -96,9 +96,9 @@ def update_settings(
     settings.default_tax_rate = payload.default_tax_rate
     settings.pdf_footer_text = payload.pdf_footer_text
     
-    if payload.vat_exemption_text:
+    if payload.vat_exemption_text is not None:
         settings.vat_exemption_text = payload.vat_exemption_text
-    if payload.late_payment_penalties:
+    if payload.late_payment_penalties is not None:
         settings.late_payment_penalties = payload.late_payment_penalties
         
     settings.updated_at = datetime.utcnow()
@@ -119,20 +119,20 @@ def reset_account_data(
     DANGER: Delete all data for the current user (Quotes, Items, Clients).
     Does NOT delete the User account or global Settings.
     """
+    from sqlalchemy import delete as sa_delete
     from models.quote import Quote, QuoteItem
     from models.client import Client
-    
-    # 1. Delete all Quotes (and cascade Items)
-    statement_quotes = select(Quote).where(Quote.user_id == current_user.id)
-    quotes = session.exec(statement_quotes).all()
-    for quote in quotes:
-        session.delete(quote)
-        
-    # 2. Delete all Clients
-    statement_clients = select(Client).where(Client.user_id == current_user.id)
-    clients = session.exec(statement_clients).all()
-    for client in clients:
-        session.delete(client)
-        
+
+    # Bulk DELETE in correct order to respect FK constraints
+    # 1. Delete all QuoteItems for user's quotes
+    user_quote_ids = select(Quote.id).where(Quote.user_id == current_user.id)
+    session.exec(sa_delete(QuoteItem).where(QuoteItem.quote_id.in_(user_quote_ids)))
+
+    # 2. Delete all Quotes
+    session.exec(sa_delete(Quote).where(Quote.user_id == current_user.id))
+
+    # 3. Delete all Clients
+    session.exec(sa_delete(Client).where(Client.user_id == current_user.id))
+
     session.commit()
     return None

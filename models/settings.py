@@ -22,7 +22,7 @@ class Settings(SQLModel, table=True):
     # Fiscal Settings
     is_vat_applicable: bool = Field(default=True)
     vat_exemption_text: str = Field(default="TVA non applicable, art. 293 B du CGI")
-    late_payment_penalties: str = Field(default="3 fois le taux d'intérêt légal")
+    late_payment_penalties: Optional[str] = Field(default=None)
     
     # Defaults
     default_currency: str = Field(default="EUR")

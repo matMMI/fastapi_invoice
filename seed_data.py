@@ -205,9 +205,19 @@ def main():
     print(f"   Quotes: {args.quotes}\n")
     
     with Session(engine) as session:
+        # Clean existing data for this user first
+        from sqlalchemy import delete as sa_del
+        print("Cleaning existing data...")
+        user_quote_ids = select(Quote.id).where(Quote.user_id == args.user_id)
+        session.exec(sa_del(QuoteItem).where(QuoteItem.quote_id.in_(user_quote_ids)))
+        session.exec(sa_del(Quote).where(Quote.user_id == args.user_id))
+        session.exec(sa_del(Client).where(Client.user_id == args.user_id))
+        session.commit()
+        print("Cleaned existing data")
+
         # Create clients first
         clients = create_clients(session, args.user_id, args.clients)
-        
+
         # Then create quotes linked to those clients
         quotes = create_quotes(session, args.user_id, clients, args.quotes)
         

@@ -90,11 +90,17 @@ class QuoteResponse(BaseModel):
     pdf_url: str | None
     notes: str | None
     payment_terms: str | None
-    
+
+    # Signature
+    signed_at: datetime | None = None
+    signer_name: str | None = None
+    signer_email: str | None = None
+    signer_function: str | None = None
+
     created_at: datetime
     updated_at: datetime
     sent_at: datetime | None
-    
+
     items: list[QuoteItemResponse]
 
     model_config = {"from_attributes": True}

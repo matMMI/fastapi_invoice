@@ -125,6 +125,7 @@ def test_sign_action(signature_setup, session: Session):
     
     payload = {
         "signer_name": "Jean Dupont",
+        "signer_email": "jean.dupont@example.com",
         "signature_data": VALID_SIGNATURE_DATA
     }
     

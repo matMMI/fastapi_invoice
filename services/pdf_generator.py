@@ -268,8 +268,10 @@ def generate_quote_pdf(quote: Quote, settings: Settings, user: User) -> bytes:
                 details.append(f"Signé le {signed_date}")
             if quote.signer_name:
                 details.append(f"Par : {quote.signer_name}")
-            if quote.signer_ip:
-                details.append(f"IP : {quote.signer_ip}")
+            if getattr(quote, 'signer_function', None):
+                details.append(f"Fonction : {quote.signer_function}")
+            if getattr(quote, 'signer_email', None):
+                details.append(f"Email : {quote.signer_email}")
                 
             elements.append(Paragraph(" - ".join(details), ParagraphStyle('SigDetails', parent=normal_style, fontSize=8, textColor=colors.gray)))
         except Exception as e:

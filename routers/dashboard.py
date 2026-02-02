@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from sqlmodel import Session, select, func
 from db.session import get_session
 from core.security import get_current_user
@@ -57,12 +57,48 @@ class DashboardMetrics(BaseModel):
     threshold_status: "ThresholdStatus"
 
 
+class ThresholdAlert(BaseModel):
+    level: str  # "info", "warning", "danger", "critical"
+    threshold_name: str
+    current_value: float
+    threshold_value: float
+    percentage: float
+    message: str
+    recommendation: str
+
+
+class ProjectionData(BaseModel):
+    ca_previsionnel_fin_annee: float
+    jours_ecoules: int
+    jours_total: int
+    risque_depassement_tva: bool
+    risque_depassement_micro: bool
+    date_prevu_depassement_tva: str | None
+    date_prevu_depassement_micro: str | None
+
+
+class FiscalSimulation(BaseModel):
+    ca_annuel: float
+    cotisations_urssaf: float
+    abattement: float
+    revenu_imposable: float
+    impot: float
+    revenu_net_annuel: float
+    revenu_net_mensuel: float
+    taux_charges_global: float
+    tmi: int
+
+
 class ThresholdStatus(BaseModel):
     revenue: float
-    base_threshold: float
-    max_threshold: float
-    status: str # "ok", "warning", "exceeded", "assujetti"
+    base_threshold: float  # Seuil franchise TVA: 37 500 €
+    tolerance_threshold: float  # Seuil tolérance TVA: 39 100 €
+    micro_ceiling: float  # Plafond micro-entreprise: 77 700 €
+    status: str  # "ok", "info", "warning", "danger", "critical", "assujetti"
     message: str
+    alerts: list[ThresholdAlert]
+    projection: ProjectionData
+    fiscal_simulation: FiscalSimulation
 
 
 @router.get("/dashboard/metrics", response_model=DashboardMetrics)
@@ -163,8 +199,8 @@ async def get_dashboard_metrics(
         current_quarter=current_quarter
     )
     
-    # Threshold Logic (Phase 18)
-    # Calculate Collected Revenue (Paid Date in Current Year)
+    # ====== Threshold Logic - Regles Comptables Micro-Entreprise BNC ======
+    # CA = date encaissement (is_paid + payment_date), PAS date de facturation
     collected_revenue = db.exec(
         select(func.sum(Quote.total))
         .where(
@@ -173,28 +209,215 @@ async def get_dashboard_metrics(
             func.extract('year', Quote.payment_date) == current_year
         )
     ).one() or 0.0
-    
+
     collected_revenue = float(collected_revenue)
-    threshold_status = "ok"
-    threshold_msg = "En dessous du seuil de franchise (37 500 €)."
-    
+
+    # Seuils legaux 2026
+    SEUIL_TVA_FRANCHISE = 37500.0
+    SEUIL_TVA_TOLERANCE = 39100.0
+    SEUIL_MICRO_BNC = 77700.0
+    TAUX_URSSAF = 0.22
+    TAUX_ABATTEMENT_BNC = 0.34
+    ABATTEMENT_MINIMUM = 305.0
+
+    # Calcul impot progressif (bareme 2025)
+    def calculate_progressive_tax(rev_imp: float) -> tuple[float, int]:
+        brackets = [
+            (11497, 0.00),
+            (29315, 0.11),
+            (83823, 0.30),
+            (180294, 0.41),
+            (float('inf'), 0.45),
+        ]
+        tax = 0.0
+        prev_limit = 0
+        cur_tmi = 0
+        for limit, rate in brackets:
+            if rev_imp <= prev_limit:
+                break
+            taxable = min(rev_imp, limit) - prev_limit
+            tax += taxable * rate
+            if taxable > 0:
+                cur_tmi = int(rate * 100)
+            prev_limit = limit
+        return tax, cur_tmi
+
+    # Simulation fiscale
+    cotisations_urssaf = collected_revenue * TAUX_URSSAF
+    abattement = max(collected_revenue * TAUX_ABATTEMENT_BNC, ABATTEMENT_MINIMUM) if collected_revenue > 0 else 0.0
+    revenu_imposable = max(collected_revenue - abattement, 0.0)
+    impot, tmi = calculate_progressive_tax(revenu_imposable)
+    revenu_net_annuel = collected_revenue - cotisations_urssaf - impot
+    revenu_net_mensuel = revenu_net_annuel / 12 if revenu_net_annuel > 0 else 0.0
+    taux_charges = ((cotisations_urssaf + impot) / collected_revenue * 100) if collected_revenue > 0 else 0.0
+
+    fiscal_sim = FiscalSimulation(
+        ca_annuel=collected_revenue,
+        cotisations_urssaf=round(cotisations_urssaf, 2),
+        abattement=round(abattement, 2),
+        revenu_imposable=round(revenu_imposable, 2),
+        impot=round(impot, 2),
+        revenu_net_annuel=round(revenu_net_annuel, 2),
+        revenu_net_mensuel=round(revenu_net_mensuel, 2),
+        taux_charges_global=round(taux_charges, 1),
+        tmi=tmi
+    )
+
+    # Projection fin annee
+    today_date = date.today()
+    jan1 = date(current_year, 1, 1)
+    dec31 = date(current_year, 12, 31)
+    jours_ecoules = (today_date - jan1).days + 1
+    jours_total = (dec31 - jan1).days + 1
+
+    ca_previsionnel = (collected_revenue / jours_ecoules) * jours_total if jours_ecoules > 0 else 0.0
+    daily_rate = collected_revenue / jours_ecoules if jours_ecoules > 0 else 0.0
+
+    date_prevu_tva = None
+    date_prevu_micro = None
+
+    if daily_rate > 0 and collected_revenue < SEUIL_TVA_FRANCHISE:
+        days_to_tva = (SEUIL_TVA_FRANCHISE - collected_revenue) / daily_rate
+        d = today_date + timedelta(days=int(days_to_tva))
+        if d.year == current_year:
+            date_prevu_tva = d.isoformat()
+
+    if daily_rate > 0 and collected_revenue < SEUIL_MICRO_BNC:
+        days_to_micro = (SEUIL_MICRO_BNC - collected_revenue) / daily_rate
+        d = today_date + timedelta(days=int(days_to_micro))
+        if d.year == current_year:
+            date_prevu_micro = d.isoformat()
+
+    projection = ProjectionData(
+        ca_previsionnel_fin_annee=round(ca_previsionnel, 2),
+        jours_ecoules=jours_ecoules,
+        jours_total=jours_total,
+        risque_depassement_tva=ca_previsionnel > SEUIL_TVA_FRANCHISE,
+        risque_depassement_micro=ca_previsionnel > SEUIL_MICRO_BNC,
+        date_prevu_depassement_tva=date_prevu_tva,
+        date_prevu_depassement_micro=date_prevu_micro
+    )
+
+    # Alertes multi-niveaux
+    alerts: list[ThresholdAlert] = []
+    threshold_status_val = "ok"
+    threshold_msg = "En dessous du seuil de franchise TVA (37 500 euros)."
+
     if current_user.tax_status == "ASSUJETTI":
-        threshold_status = "assujetti"
-        threshold_msg = "Vous êtes assujetti à la TVA."
+        threshold_status_val = "assujetti"
+        threshold_msg = "Vous etes assujetti a la TVA."
     else:
-        if collected_revenue > 41250:
-            threshold_status = "exceeded"
-            threshold_msg = "Seuil majoré (41 250 €) dépassé ! Passage à la TVA obligatoire."
-        elif collected_revenue > 37500:
-            threshold_status = "warning"
-            threshold_msg = "Seuil de base (37 500 €) dépassé. Attention au seuil majoré."
-            
+        # Alertes TVA
+        if collected_revenue > SEUIL_TVA_TOLERANCE:
+            threshold_status_val = "critical"
+            threshold_msg = "Seuil de tolerance TVA (39 100 euros) depasse ! TVA applicable IMMEDIATEMENT."
+            alerts.append(ThresholdAlert(
+                level="critical", threshold_name="tva_tolerance",
+                current_value=collected_revenue, threshold_value=SEUIL_TVA_TOLERANCE,
+                percentage=round(collected_revenue / SEUIL_TVA_TOLERANCE * 100, 1),
+                message="Seuil de tolerance TVA (39 100 euros) depasse ! Vous DEVEZ facturer avec TVA 20% IMMEDIATEMENT.",
+                recommendation="Contacter un comptable en URGENCE."
+            ))
+        elif collected_revenue > SEUIL_TVA_FRANCHISE:
+            threshold_status_val = "danger"
+            threshold_msg = "Seuil de franchise TVA (37 500 euros) depasse."
+            alerts.append(ThresholdAlert(
+                level="danger", threshold_name="tva_franchise",
+                current_value=collected_revenue, threshold_value=SEUIL_TVA_FRANCHISE,
+                percentage=round(collected_revenue / SEUIL_TVA_FRANCHISE * 100, 1),
+                message="Seuil de franchise TVA depasse. TVA applicable au 01/01 de l annee prochaine.",
+                recommendation="STOP nouvelles missions. Preparer passage TVA."
+            ))
+        elif collected_revenue >= SEUIL_TVA_FRANCHISE * 0.95:
+            threshold_status_val = "warning"
+            threshold_msg = "DANGER - Seuil TVA imminent."
+            marge = round(SEUIL_TVA_FRANCHISE - collected_revenue, 2)
+            pct = round(collected_revenue / SEUIL_TVA_FRANCHISE * 100, 1)
+            alerts.append(ThresholdAlert(
+                level="warning", threshold_name="tva_95",
+                current_value=collected_revenue, threshold_value=SEUIL_TVA_FRANCHISE,
+                percentage=pct,
+                message=f"Vous etes a {pct}% du seuil TVA. Marge restante : {marge} euros.",
+                recommendation="Refuser/reporter les missions non critiques."
+            ))
+        elif collected_revenue >= SEUIL_TVA_FRANCHISE * 0.90:
+            threshold_status_val = "info"
+            threshold_msg = "Attention, vous approchez du seuil TVA."
+            marge = round(SEUIL_TVA_FRANCHISE - collected_revenue, 2)
+            pct = round(collected_revenue / SEUIL_TVA_FRANCHISE * 100, 1)
+            alerts.append(ThresholdAlert(
+                level="info", threshold_name="tva_90",
+                current_value=collected_revenue, threshold_value=SEUIL_TVA_FRANCHISE,
+                percentage=pct,
+                message=f"Approche du seuil TVA (37 500 euros). Marge restante : {marge} euros.",
+                recommendation="Calculez bien vos nouveaux devis."
+            ))
+
+        # Alertes plafond micro-entreprise
+        if collected_revenue > SEUIL_MICRO_BNC:
+            threshold_status_val = "critical"
+            alerts.append(ThresholdAlert(
+                level="critical", threshold_name="micro_depassement",
+                current_value=collected_revenue, threshold_value=SEUIL_MICRO_BNC,
+                percentage=round(collected_revenue / SEUIL_MICRO_BNC * 100, 1),
+                message="Plafond micro-entreprise (77 700 euros) depasse ! Sortie du regime.",
+                recommendation="Passage obligatoire en entreprise individuelle au regime reel."
+            ))
+        elif collected_revenue >= SEUIL_MICRO_BNC * 0.95:
+            alerts.append(ThresholdAlert(
+                level="warning", threshold_name="micro_95",
+                current_value=collected_revenue, threshold_value=SEUIL_MICRO_BNC,
+                percentage=round(collected_revenue / SEUIL_MICRO_BNC * 100, 1),
+                message="DANGER - Plafond micro-entreprise imminent.",
+                recommendation="Refuser les nouvelles missions."
+            ))
+        elif collected_revenue >= SEUIL_MICRO_BNC * 0.90:
+            alerts.append(ThresholdAlert(
+                level="info", threshold_name="micro_90",
+                current_value=collected_revenue, threshold_value=SEUIL_MICRO_BNC,
+                percentage=round(collected_revenue / SEUIL_MICRO_BNC * 100, 1),
+                message=f"Approche du plafond micro (77 700 euros). Marge : {round(SEUIL_MICRO_BNC - collected_revenue, 2)} euros.",
+                recommendation="Surveillez votre CA de pres."
+            ))
+
+        # Alerte TMI 11%
+        if revenu_imposable > 29315:
+            alerts.append(ThresholdAlert(
+                level="warning", threshold_name="tmi_30",
+                current_value=revenu_imposable, threshold_value=29315,
+                percentage=round(revenu_imposable / 29315 * 100, 1),
+                message="Passage TMI 30%. Au-dela de 29 315 euros, imposition a 30%.",
+                recommendation="Evaluer report de missions au 01/01 prochain."
+            ))
+        elif revenu_imposable >= 29315 * 0.95:
+            alerts.append(ThresholdAlert(
+                level="info", threshold_name="tmi_11_limit",
+                current_value=revenu_imposable, threshold_value=29315,
+                percentage=round(revenu_imposable / 29315 * 100, 1),
+                message="Attention, passage TMI 30% imminent.",
+                recommendation="Optimisation : rester sous 29 315 euros de revenu imposable."
+            ))
+
+        # Alerte projection fin annee
+        if ca_previsionnel > SEUIL_TVA_FRANCHISE and collected_revenue <= SEUIL_TVA_FRANCHISE:
+            alerts.append(ThresholdAlert(
+                level="warning", threshold_name="projection_tva",
+                current_value=ca_previsionnel, threshold_value=SEUIL_TVA_FRANCHISE,
+                percentage=round(ca_previsionnel / SEUIL_TVA_FRANCHISE * 100, 1),
+                message=f"Risque depassement TVA prevu. CA previsionnel : {round(ca_previsionnel, 2)} euros.",
+                recommendation=f"Date previsionnelle depassement : {date_prevu_tva or 'N/A'}."
+            ))
+
     threshold_data = ThresholdStatus(
         revenue=collected_revenue,
-        base_threshold=37500.0,
-        max_threshold=41250.0,
-        status=threshold_status,
-        message=threshold_msg
+        base_threshold=SEUIL_TVA_FRANCHISE,
+        tolerance_threshold=SEUIL_TVA_TOLERANCE,
+        micro_ceiling=SEUIL_MICRO_BNC,
+        status=threshold_status_val,
+        message=threshold_msg,
+        alerts=alerts,
+        projection=projection,
+        fiscal_simulation=fiscal_sim
     )
     
     return DashboardMetrics(

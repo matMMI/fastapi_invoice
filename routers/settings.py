@@ -59,6 +59,16 @@ def update_settings(
     current_user: User = Depends(get_current_user)
 ):
     """Update User identity and App settings."""
+    # Validation SIRET: exactement 14 chiffres si renseigne
+    if payload.siret and payload.siret.strip():
+        siret_clean = payload.siret.replace(" ", "")
+        if not siret_clean.isdigit() or len(siret_clean) != 14:
+            raise HTTPException(
+                status_code=422,
+                detail="Le SIRET doit contenir exactement 14 chiffres."
+            )
+        payload.siret = siret_clean
+
     # 1. Update User Identity
     current_user.name = payload.name
     current_user.business_name = payload.business_name

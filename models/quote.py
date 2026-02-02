@@ -43,7 +43,9 @@ class Quote(SQLModel, table=True):
     signed_at: datetime | None = Field(default=None)
     signature_data: str | None = Field(default=None)  # Base64 PNG of signature
     signer_name: str | None = Field(default=None, max_length=200)
-    signer_ip: str | None = Field(default=None, max_length=50)
+    signer_email: str | None = Field(default=None, max_length=255)
+    signer_function: str | None = Field(default=None, max_length=200)
+    signer_ip: str | None = Field(default=None, max_length=50)  # Deprecated: ne plus utiliser
     
     # Timestamps
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

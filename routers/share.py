@@ -61,7 +61,17 @@ class PublicQuoteResponse(BaseModel):
 
 class SignRequest(BaseModel):
     signer_name: str = Field(..., min_length=1, max_length=200)
+    signer_email: str = Field(..., min_length=1, max_length=255)
+    signer_function: str | None = Field(None, max_length=200)
     signature_data: str = Field(..., max_length=500_000)  # ~375KB decoded max
+
+    @field_validator("signer_email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        import re
+        if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', v):
+            raise ValueError("Adresse email invalide")
+        return v
 
     @field_validator("signature_data")
     @classmethod
@@ -213,24 +223,13 @@ async def sign_quote(
     if quote.signed_at:
         raise HTTPException(status_code=400, detail="Ce devis a déjà été signé")
     
-    # Get client IP — prefer X-Real-IP (set by Vercel/trusted proxy), fallback to direct
-    client_ip = request.client.host if request.client else "unknown"
-    real_ip = request.headers.get("x-real-ip")
-    if real_ip:
-        client_ip = real_ip.strip()
-    else:
-        forwarded = request.headers.get("x-forwarded-for")
-        if forwarded:
-            # Behind trusted proxy: use the rightmost non-proxy IP
-            ips = [ip.strip() for ip in forwarded.split(",")]
-            client_ip = ips[0] if len(ips) == 1 else ips[-2]
-    
-    # Save signature
+    # Save signature (IP volontairement non capturee - respect vie privee)
     now = datetime.now(timezone.utc)
     quote.signed_at = now
     quote.signature_data = sign_data.signature_data
     quote.signer_name = sign_data.signer_name
-    quote.signer_ip = client_ip
+    quote.signer_email = sign_data.signer_email
+    quote.signer_function = sign_data.signer_function
     quote.status = QuoteStatus.SIGNED
     quote.updated_at = now
     

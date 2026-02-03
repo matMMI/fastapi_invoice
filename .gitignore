@@ -17,4 +17,5 @@ vercel.prodBack.env
 *.swo
 .DS_Store
 Thumbs.db
+*.har
 .vercel

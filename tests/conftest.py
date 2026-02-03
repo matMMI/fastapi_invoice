@@ -4,7 +4,6 @@ import sys
 from pathlib import Path
 
 # Add project root to Python path
-# Add project root to Python path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
@@ -14,6 +13,15 @@ from sqlmodel.pool import StaticPool
 
 from main import app
 from db.session import get_session
+from core.rate_limit import limiter
+
+
+@pytest.fixture(autouse=True)
+def disable_rate_limiting():
+    """Disable rate limiting during tests."""
+    limiter.enabled = False
+    yield
+    limiter.enabled = True
 
 
 @pytest.fixture(name="session")

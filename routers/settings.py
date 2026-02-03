@@ -1,12 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlmodel import Session, select
 from typing import Optional
+from core.rate_limit import limiter
 from models.settings import Settings
 from models.user import User
 from db.session import get_session
 from core.security import get_current_user
-from datetime import datetime
-
+from datetime import datetime, timezone
 router = APIRouter()
 
 from schemas.settings import UserSettingsSchema
@@ -101,7 +101,7 @@ def update_settings(
     if payload.late_payment_penalties is not None:
         settings.late_payment_penalties = payload.late_payment_penalties
         
-    settings.updated_at = datetime.utcnow()
+    settings.updated_at = datetime.now(timezone.utc)
     
     session.add(settings)
     session.commit()
@@ -111,7 +111,9 @@ def update_settings(
     return payload
 
 @router.delete("/reset", status_code=204)
+@limiter.limit("1/minute")
 def reset_account_data(
+    request: Request,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):

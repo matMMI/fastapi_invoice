@@ -32,7 +32,7 @@ if [[ -z $(git status -s) ]]; then
     echo "ℹ️  Aucun changement à commiter"
 else
     echo "📝 Ajout des fichiers modifiés..."
-    git add .
+    git add -u  # Only stage tracked files, never new untracked files
     
     if [[ "$INTERACTIVE" == "true" ]]; then
         echo ""

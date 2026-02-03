@@ -1,11 +1,13 @@
 """API routes for PDF generation."""
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+import re
+from fastapi import APIRouter, Depends, HTTPException, Response, Request
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 from sqlalchemy.orm import selectinload
 from io import BytesIO
 import logging
+from core.rate_limit import limiter
 from db.session import get_session
 from core.security import get_current_user
 from models.user import User
@@ -14,8 +16,12 @@ from models.settings import Settings
 from services.pdf_generator import generate_quote_pdf
 
 logger = logging.getLogger(__name__)
-
 router = APIRouter()
+
+
+def _sanitize_filename(name: str) -> str:
+    """Sanitize a string for safe use in Content-Disposition headers."""
+    return re.sub(r'[^\w\s\-.]', '', name).strip()
 def get_user_settings(session: Session, user_id: str) -> Settings:
     statement = select(Settings).where(Settings.user_id == user_id)
     settings = session.exec(statement).first()
@@ -25,7 +31,9 @@ def get_user_settings(session: Session, user_id: str) -> Settings:
 
 
 @router.post("/quotes/{quote_id}/generate-pdf")
+@limiter.limit("10/minute")
 async def generate_pdf(
+    request: Request,
     quote_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_session)
@@ -51,19 +59,21 @@ async def generate_pdf(
         logger.error(f"PDF generation failed for quote {quote_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Erreur lors de la génération du PDF")
 
-    filename = f"{quote.quote_number}.pdf"
+    filename = _sanitize_filename(quote.quote_number) + ".pdf"
 
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f"attachment; filename={filename}"
+            "Content-Disposition": f'attachment; filename="{filename}"'
         }
     )
 
 
 @router.get("/quotes/{quote_id}/pdf")
+@limiter.limit("10/minute")
 async def get_pdf(
+    request: Request,
     quote_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_session)
@@ -84,12 +94,12 @@ async def get_pdf(
         logger.error(f"PDF generation failed for quote {quote_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Erreur lors de la génération du PDF")
 
-    filename = f"{quote.quote_number}.pdf"
+    filename = _sanitize_filename(quote.quote_number) + ".pdf"
 
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f"inline; filename={filename}"
+            "Content-Disposition": f'inline; filename="{filename}"'
         }
     )

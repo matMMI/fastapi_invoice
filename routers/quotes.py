@@ -1,8 +1,10 @@
 """API routes for quote management."""
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+import re
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlmodel import Session, select, func, or_
 import logging
+from core.rate_limit import limiter
 from db.session import get_session
 from core.security import get_current_user
 from models.user import User
@@ -14,8 +16,12 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 logger = logging.getLogger(__name__)
-
 router = APIRouter()
+
+
+def _sanitize_filename(name: str) -> str:
+    """Sanitize a string for safe use in Content-Disposition headers."""
+    return re.sub(r'[^\w\s\-.]', '', name).strip()
 
 def calculate_quote_totals(quote: Quote, items: list[QuoteItem]):
     """Calculate subtotal, tax and total for a quote."""
@@ -43,7 +49,7 @@ async def create_quote(
 ):
     """Create a new quote with items."""
     
-    # Verify client ownership
+    # Verify client ownership (prevents IDOR)
     client = db.get(Client, quote_data.client_id)
     if not client or client.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Client not found")
@@ -182,8 +188,12 @@ async def update_quote(
     if quote.is_paid:
         raise HTTPException(status_code=403, detail="Cannot modify a paid invoice (Inalterability rule).")
 
-    # Update header fields
-    if quote_data.client_id is not None: quote.client_id = quote_data.client_id
+    # Update header fields (verify client ownership on reassignment)
+    if quote_data.client_id is not None:
+        new_client = db.get(Client, quote_data.client_id)
+        if not new_client or new_client.user_id != current_user.id:
+            raise HTTPException(status_code=404, detail="Client not found")
+        quote.client_id = quote_data.client_id
     if quote_data.quote_number is not None: quote.quote_number = quote_data.quote_number
     if quote_data.currency is not None: quote.currency = quote_data.currency
     if quote_data.status is not None: quote.status = quote_data.status
@@ -282,13 +292,19 @@ async def export_revenue(
         "Mode de Paiement"
     ])
     
+    def _csv_safe(value: str) -> str:
+        """Prevent CSV formula injection by prefixing dangerous characters."""
+        if value and value[0] in ('=', '+', '-', '@', '\t', '\r'):
+            return f"'{value}"
+        return value
+
     for q in quotes:
-        client_name = q.client.name if q.client else "Inconnu"
+        client_name = _csv_safe(q.client.name if q.client else "Inconnu")
         payment_date = q.payment_date.strftime("%d/%m/%Y") if q.payment_date else ""
-        
+
         writer.writerow([
             payment_date,
-            q.quote_number,
+            _csv_safe(q.quote_number),
             client_name,
             f"{q.subtotal:.2f}",
             f"{q.tax_amount:.2f}",
@@ -299,9 +315,9 @@ async def export_revenue(
     output.seek(0)
     
     filename = f"livre_recettes_{datetime.now().strftime('%Y%m%d')}.csv"
-    
+
     return StreamingResponse(
         iter([output.getvalue()]),
         media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )

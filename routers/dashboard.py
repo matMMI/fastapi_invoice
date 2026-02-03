@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from datetime import datetime, date, timedelta
 from sqlmodel import Session, select, func
+from core.rate_limit import limiter
 from db.session import get_session
 from core.security import get_current_user
 from models.user import User
@@ -9,7 +10,6 @@ from models.client import Client
 from models.enums import QuoteStatus, Currency
 from pydantic import BaseModel
 from decimal import Decimal
-
 router = APIRouter()
 
 
@@ -102,7 +102,9 @@ class ThresholdStatus(BaseModel):
 
 
 @router.get("/dashboard/metrics", response_model=DashboardMetrics)
+@limiter.limit("20/minute")
 async def get_dashboard_metrics(
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_session)
 ):

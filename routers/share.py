@@ -9,8 +9,7 @@ from uuid import uuid4
 import base64
 import logging
 
-from slowapi import Limiter
-from slowapi.util import get_remote_address
+from core.rate_limit import limiter
 
 from db.session import get_session
 from models.quote import Quote, QuoteItem
@@ -20,7 +19,6 @@ from core.security import get_current_user
 from models.user import User
 
 logger = logging.getLogger(__name__)
-limiter = Limiter(key_func=get_remote_address)
 
 router = APIRouter(tags=["share"])
 
@@ -232,7 +230,10 @@ async def sign_quote(
     quote.signer_function = sign_data.signer_function
     quote.status = QuoteStatus.SIGNED
     quote.updated_at = now
-    
+    # Revoke share token after signing (prevent permanent public access)
+    quote.share_token = None
+    quote.share_token_expires_at = None
+
     db.add(quote)
     db.commit()
     db.refresh(quote)
@@ -294,12 +295,14 @@ async def get_public_quote_pdf(
         logger.error(f"PDF generation failed for quote {quote.id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Erreur lors de la génération du PDF")
     
-    filename = f"Devis_{quote.quote_number}.pdf"
-    
+    import re
+    safe_number = re.sub(r'[^\w\s\-.]', '', quote.quote_number).strip()
+    filename = f"Devis_{safe_number}.pdf"
+
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f"attachment; filename={filename}"
+            "Content-Disposition": f'attachment; filename="{filename}"'
         }
     )

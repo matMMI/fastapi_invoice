@@ -1,19 +1,21 @@
 """API routes for client management."""
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlmodel import Session, select, func, or_
+from core.rate_limit import limiter
 from db.session import get_session
 from core.security import get_current_user
 from models.user import User
 from models.client import Client
 from schemas.client import ClientCreate, ClientUpdate, ClientResponse, ClientListResponse
 from datetime import datetime, timezone
-
 router = APIRouter()
 
 
 @router.post("/clients", response_model=ClientResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("30/minute")
 async def create_client(
+    request: Request,
     client_data: ClientCreate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_session)
@@ -110,10 +112,12 @@ async def update_client(
             detail="Client not found"
         )
     
-    # Update fields
+    # Update only allowed fields (prevent mass assignment)
+    ALLOWED_UPDATE_FIELDS = {"name", "email", "company", "phone", "address", "city", "postal_code", "country", "vat_number", "notes"}
     update_data = client_data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
-        setattr(client, key, value)
+        if key in ALLOWED_UPDATE_FIELDS:
+            setattr(client, key, value)
     
     client.updated_at = datetime.now(timezone.utc)
     db.add(client)

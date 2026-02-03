@@ -7,7 +7,10 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_RIGHT, TA_CENTER
 from io import BytesIO
+from xml.sax.saxutils import escape as xml_escape
+import ipaddress
 import os
+import socket
 import urllib.request
 import urllib.parse
 import logging
@@ -27,8 +30,28 @@ BLOCKED_IP_PREFIXES = ("10.", "172.16.", "172.17.", "172.18.", "172.19.",
                        "172.25.", "172.26.", "172.27.", "172.28.", "172.29.",
                        "172.30.", "172.31.", "192.168.", "169.254.", "100.64.")
 
+
+def _esc(text: str | None) -> str:
+    """Escape user input for safe use in ReportLab Paragraph XML markup."""
+    if text is None:
+        return ""
+    return xml_escape(str(text))
+
+
+def _is_private_ip(ip_str: str) -> bool:
+    """Check if an IP address is private/reserved (covers IPv4 and IPv6)."""
+    try:
+        addr = ipaddress.ip_address(ip_str)
+        return addr.is_private or addr.is_reserved or addr.is_loopback or addr.is_link_local
+    except ValueError:
+        return True  # If we can't parse it, block it
+
+
 def _is_safe_url(url: str) -> bool:
-    """Validate that a URL does not point to internal/private resources."""
+    """Validate that a URL does not point to internal/private resources.
+
+    Resolves DNS to prevent DNS rebinding and checks all resolved IPs.
+    """
     parsed = urllib.parse.urlparse(url)
     hostname = (parsed.hostname or "").lower()
     if hostname in BLOCKED_HOSTS:
@@ -37,6 +60,15 @@ def _is_safe_url(url: str) -> bool:
         return False
     if parsed.scheme not in ("http", "https"):
         return False
+    # Resolve DNS and check all IPs to prevent DNS rebinding
+    try:
+        addrinfos = socket.getaddrinfo(hostname, None)
+        for family, _, _, _, sockaddr in addrinfos:
+            ip_str = sockaddr[0]
+            if _is_private_ip(ip_str):
+                return False
+    except socket.gaierror:
+        return False  # Cannot resolve = block
     return True
 
 
@@ -96,7 +128,6 @@ def generate_quote_pdf(quote: Quote, settings: Settings, user: User) -> bytes:
             logo_path = settings.company_logo_url
             img = None
             # Resolve relative paths (e.g. /logo.png) via the frontend URL
-            is_internal_logo = False
             if logo_path.startswith("/") and not os.path.exists(logo_path):
                 frontend_url = os.getenv("FRONTEND_URL", "")
                 if not frontend_url:
@@ -104,18 +135,17 @@ def generate_quote_pdf(quote: Quote, settings: Settings, user: User) -> bytes:
                     cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000")
                     frontend_url = cors_origins.split(",")[0].strip()
                 logo_path = f"{frontend_url.rstrip('/')}{logo_path}"
-                is_internal_logo = True
             if logo_path.startswith("http"):
-                if not is_internal_logo and not _is_safe_url(logo_path):
-                    logger.warning(f"Blocked unsafe logo URL: {logo_path}")
+                # Always validate URL safety (no bypass for internal logos)
+                if not _is_safe_url(logo_path):
+                    logger.warning("Blocked unsafe logo URL")
                     raise ValueError("URL de logo non autorisée")
                 req = urllib.request.Request(logo_path, headers={'User-Agent': 'Mozilla/5.0'})
                 with urllib.request.urlopen(req, timeout=5) as response:
                     img_data = response.read(5 * 1024 * 1024)  # 5MB max
                     img_stream = BytesIO(img_data)
                     img = Image(img_stream, width=1*cm, height=1*cm, kind='proportional')
-            elif os.path.exists(logo_path):
-                img = Image(logo_path, width=1*cm, height=1*cm, kind='proportional')
+            # Do NOT load arbitrary local file paths — only allow HTTP(S) URLs
                 
             if img:
                 img.hAlign = 'LEFT'
@@ -124,17 +154,17 @@ def generate_quote_pdf(quote: Quote, settings: Settings, user: User) -> bytes:
         except Exception as e:
             logger.warning(f"Logo loading failed: {e}")
             
-    left_column.append(Paragraph(company_name, company_name_style))
+    left_column.append(Paragraph(_esc(company_name), company_name_style))
     if company_address:
-        left_column.append(Paragraph(company_address.replace('\n', '<br/>'), normal_style))
+        left_column.append(Paragraph(_esc(company_address).replace('\n', '<br/>'), normal_style))
     if company_email:
-        left_column.append(Paragraph(f"Email: {company_email}", normal_style))
+        left_column.append(Paragraph(f"Email: {_esc(company_email)}", normal_style))
     if settings.company_phone:
-        left_column.append(Paragraph(f"Tel: {settings.company_phone}", normal_style))
+        left_column.append(Paragraph(f"Tel: {_esc(settings.company_phone)}", normal_style))
     if settings.company_website:
-        left_column.append(Paragraph(f"Web: {settings.company_website}", normal_style))
+        left_column.append(Paragraph(f"Web: {_esc(settings.company_website)}", normal_style))
     if company_siret:
-        left_column.append(Paragraph(f"SIRET: {company_siret}", normal_style))
+        left_column.append(Paragraph(f"SIRET: {_esc(company_siret)}", normal_style))
 
     # Right Column: Quote Params & Client Info
     right_column = []
@@ -144,7 +174,7 @@ def generate_quote_pdf(quote: Quote, settings: Settings, user: User) -> bytes:
     if quote.is_paid: doc_type = "FACTURE ACQUITTÉE"
     
     right_column.append(Paragraph(doc_type, title_style))
-    right_column.append(Paragraph(f"N° {quote.quote_number}", right_align_style))
+    right_column.append(Paragraph(f"N° {_esc(quote.quote_number)}", right_align_style))
     right_column.append(Paragraph(f"Date: {quote.created_at.strftime('%d/%m/%Y')}", right_align_style))
     right_column.append(Paragraph(f"Validité: 30 jours", right_align_style))
     
@@ -157,11 +187,11 @@ def generate_quote_pdf(quote: Quote, settings: Settings, user: User) -> bytes:
     right_column.append(Paragraph("<b>Facturer à :</b>", right_align_style))
     if quote.client:
         if quote.client.company:
-            right_column.append(Paragraph(truncate(quote.client.company), right_align_style))
-        right_column.append(Paragraph(truncate(quote.client.name), right_align_style))
+            right_column.append(Paragraph(_esc(truncate(quote.client.company)), right_align_style))
+        right_column.append(Paragraph(_esc(truncate(quote.client.name)), right_align_style))
         if quote.client.address:
-            right_column.append(Paragraph(truncate(quote.client.address).replace('\n', '<br/>'), right_align_style))
-        right_column.append(Paragraph(truncate(quote.client.email), right_align_style))
+            right_column.append(Paragraph(_esc(truncate(quote.client.address)).replace('\n', '<br/>'), right_align_style))
+        right_column.append(Paragraph(_esc(truncate(quote.client.email)), right_align_style))
 
     # Unified Header Table
     header_data = [[left_column, right_column]]
@@ -178,7 +208,7 @@ def generate_quote_pdf(quote: Quote, settings: Settings, user: User) -> bytes:
     items_data = [['Description', 'Qté', 'Prix Unit.', 'Total']]
     for item in quote.items:
         items_data.append([
-            Paragraph(item.description, normal_style),
+            Paragraph(_esc(item.description), normal_style),
             str(item.quantity),
             f"{float(item.unit_price):.2f} {quote.currency.value}",
             f"{float(item.total):.2f} {quote.currency.value}"
@@ -236,7 +266,7 @@ def generate_quote_pdf(quote: Quote, settings: Settings, user: User) -> bytes:
     if quote.notes:
         elements.append(Spacer(1, 1*cm))
         elements.append(Paragraph("<b>Notes:</b>", normal_style))
-        elements.append(Paragraph(quote.notes.replace('\n', '<br/>'), normal_style))
+        elements.append(Paragraph(_esc(quote.notes).replace('\n', '<br/>'), normal_style))
 
     # --- Fiscal & Legal Mentions ---
     elements.append(Spacer(1, 1*cm))
@@ -244,11 +274,11 @@ def generate_quote_pdf(quote: Quote, settings: Settings, user: User) -> bytes:
     
     if not is_vat_applicable:
         mention = settings.vat_exemption_text or "TVA non applicable, art. 293 B du CGI"
-        elements.append(Paragraph(mention, legal_style))
+        elements.append(Paragraph(_esc(mention), legal_style))
         
     # Legal Mentions (Penalties)
     if settings.late_payment_penalties:
-        elements.append(Paragraph(f"Pénalités de retard : {settings.late_payment_penalties}", legal_style))
+        elements.append(Paragraph(f"Pénalités de retard : {_esc(settings.late_payment_penalties)}", legal_style))
 
     # --- Electronic Signature ---
     if quote.status == QuoteStatus.SIGNED and quote.signature_data:
@@ -273,11 +303,11 @@ def generate_quote_pdf(quote: Quote, settings: Settings, user: User) -> bytes:
                 signed_date = quote.signed_at.strftime('%d/%m/%Y à %H:%M')
                 details.append(f"Signé le {signed_date}")
             if quote.signer_name:
-                details.append(f"Par : {quote.signer_name}")
+                details.append(f"Par : {_esc(quote.signer_name)}")
             if getattr(quote, 'signer_function', None):
-                details.append(f"Fonction : {quote.signer_function}")
+                details.append(f"Fonction : {_esc(quote.signer_function)}")
             if getattr(quote, 'signer_email', None):
-                details.append(f"Email : {quote.signer_email}")
+                details.append(f"Email : {_esc(quote.signer_email)}")
                 
             elements.append(Paragraph(" - ".join(details), ParagraphStyle('SigDetails', parent=normal_style, fontSize=8, textColor=colors.gray)))
         except Exception as e:
@@ -288,7 +318,7 @@ def generate_quote_pdf(quote: Quote, settings: Settings, user: User) -> bytes:
     if settings.pdf_footer_text:
         elements.append(Spacer(1, 1*cm))
         footer_style = ParagraphStyle('Footer', parent=styles['Normal'], fontSize=8, textColor=colors.gray, alignment=TA_CENTER)
-        elements.append(Paragraph(settings.pdf_footer_text.replace('\n', '<br/>'), footer_style))
+        elements.append(Paragraph(_esc(settings.pdf_footer_text).replace('\n', '<br/>'), footer_style))
 
     doc.build(elements)
     pdf_bytes = buffer.getvalue()

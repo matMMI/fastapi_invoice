@@ -7,7 +7,7 @@ from models.enums import Currency, QuoteStatus, DiscountType
 
 class QuoteItemCreate(BaseModel):
     """Schema for creating a quote item."""
-    description: str = Field(..., min_length=1)
+    description: str = Field(..., min_length=1, max_length=2000)
     quantity: Decimal = Field(..., gt=0)
     unit_price: Decimal = Field(..., ge=0)
     order: int = Field(default=0)
@@ -15,7 +15,7 @@ class QuoteItemCreate(BaseModel):
 class QuoteItemUpdate(BaseModel):
     """Schema for updating a quote item."""
     id: str | None = None
-    description: str | None = Field(None, min_length=1)
+    description: str | None = Field(None, min_length=1, max_length=2000)
     quantity: Decimal | None = Field(None, gt=0)
     unit_price: Decimal | None = Field(None, ge=0)
     order: int | None = None
@@ -35,32 +35,32 @@ class QuoteItemResponse(BaseModel):
 class QuoteCreate(BaseModel):
     """Schema for creating a new quote."""
     client_id: str
-    quote_number: str | None = None
+    quote_number: str | None = Field(None, max_length=50, pattern=r'^[a-zA-Z0-9\-_]*$')
     currency: Currency = Currency.EUR
     tax_rate: Decimal = Field(default=Decimal("20.00"), ge=0)
     discount_type: DiscountType | None = None
     discount_value: Decimal | None = None
-    
-    notes: str | None = None
-    payment_terms: str | None = None
-    
+
+    notes: str | None = Field(None, max_length=5000)
+    payment_terms: str | None = Field(None, max_length=2000)
+
     items: list[QuoteItemCreate]
 
 class QuoteUpdate(BaseModel):
     """Schema for updating a quote."""
     client_id: str | None = None
-    quote_number: str | None = None
+    quote_number: str | None = Field(None, max_length=50, pattern=r'^[a-zA-Z0-9\-_]*$')
     currency: Currency | None = None
     status: QuoteStatus | None = None
     tax_rate: Decimal | None = Field(None, ge=0)
     discount_type: DiscountType | None = None
     discount_value: Decimal | None = None
-    
-    notes: str | None = None
-    payment_terms: str | None = None
-    
+
+    notes: str | None = Field(None, max_length=5000)
+    payment_terms: str | None = Field(None, max_length=2000)
+
     is_paid: bool | None = None  # Allow updating payment status
-    
+
     items: list[QuoteItemUpdate] | None = None
 
 class QuoteResponse(BaseModel):

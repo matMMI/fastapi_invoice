@@ -8,8 +8,8 @@
 set -e
 
 # Default values
-CLIENTS=30
-QUOTES=200
+CLIENTS=3
+QUOTES=10
 
 # Parse arguments
 while [[ "$#" -gt 0 ]]; do

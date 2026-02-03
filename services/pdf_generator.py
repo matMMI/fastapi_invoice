@@ -236,7 +236,7 @@ def generate_quote_pdf(quote: Quote, settings: Settings, user: User) -> bytes:
     if quote.notes:
         elements.append(Spacer(1, 1*cm))
         elements.append(Paragraph("<b>Notes:</b>", normal_style))
-        elements.append(Paragraph(quote.notes, normal_style))
+        elements.append(Paragraph(quote.notes.replace('\n', '<br/>'), normal_style))
 
     # --- Fiscal & Legal Mentions ---
     elements.append(Spacer(1, 1*cm))

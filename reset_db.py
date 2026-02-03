@@ -8,9 +8,17 @@ from models.auth import Session as AuthSession, Account
 from models.enums import TaxStatus, QuoteStatus
 
 import bcrypt
+import sys
 from core.config import settings
 
 def reset_db():
+    # SAFETY: Refuse to run in production
+    if settings.environment == "production":
+        print("❌ DANGER: Cannot reset database in production!")
+        print("   This script is for development only.")
+        print("   Set ENVIRONMENT=development to continue.")
+        sys.exit(1)
+
     print("🗑️  Dropping all tables...")
     SQLModel.metadata.drop_all(engine)
     
@@ -32,7 +40,7 @@ def reset_db():
             name=settings.admin_name,
             password_hash=hashed_password,
             business_name="Antigravity SAS",
-            siret="123 456 789 00012",
+            siret="12345678900012",
             address="10 Rue de la Paix, 75000 Paris",
             tax_status=TaxStatus.ASSUJETTI
         )

@@ -9,7 +9,7 @@ set -e
 
 # Default values
 CLIENTS=3
-QUOTES=10
+QUOTES=15
 
 # Parse arguments
 while [[ "$#" -gt 0 ]]; do

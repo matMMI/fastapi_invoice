@@ -98,7 +98,11 @@ def generate_quote_pdf(quote: Quote, settings: Settings, user: User) -> bytes:
             # Resolve relative paths (e.g. /logo.png) via the frontend URL
             is_internal_logo = False
             if logo_path.startswith("/") and not os.path.exists(logo_path):
-                frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+                frontend_url = os.getenv("FRONTEND_URL", "")
+                if not frontend_url:
+                    # Fallback: use the first CORS origin as frontend URL
+                    cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000")
+                    frontend_url = cors_origins.split(",")[0].strip()
                 logo_path = f"{frontend_url.rstrip('/')}{logo_path}"
                 is_internal_logo = True
             if logo_path.startswith("http"):
@@ -245,8 +249,6 @@ def generate_quote_pdf(quote: Quote, settings: Settings, user: User) -> bytes:
     # Legal Mentions (Penalties)
     if settings.late_payment_penalties:
         elements.append(Paragraph(f"Pénalités de retard : {settings.late_payment_penalties}", legal_style))
-    elements.append(Paragraph("Indemnité forfaitaire pour frais de recouvrement en cas de retard de paiement : 40€", legal_style))
-    elements.append(Paragraph("Pas d'escompte pour paiement anticipé.", legal_style))
 
     # --- Electronic Signature ---
     if quote.status == QuoteStatus.SIGNED and quote.signature_data:

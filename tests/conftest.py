@@ -8,12 +8,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session, create_engine, SQLModel
+from sqlmodel import Session, SQLModel, create_engine
 from sqlmodel.pool import StaticPool
 
-from main import app
-from db.session import get_session
 from core.rate_limit import limiter
+from db.session import get_session
+from main import app
 
 
 @pytest.fixture(autouse=True)
@@ -40,6 +40,7 @@ def session_fixture():
 @pytest.fixture(name="client")
 def client_fixture(session: Session):
     """Create a test client with database session override."""
+
     def get_session_override():
         return session
 

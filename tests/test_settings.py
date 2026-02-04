@@ -1,14 +1,15 @@
 """Tests for settings management API (GET + PUT)."""
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from models.user import User
-from models.settings import Settings
 from models.auth import Session as AuthSession
-from models.enums import TaxStatus, Currency
-from datetime import datetime, timedelta, timezone
+from models.enums import TaxStatus
+from models.settings import Settings
+from models.user import User
 
 
 @pytest.fixture
@@ -22,7 +23,7 @@ def authenticated_client(client: TestClient, session: Session):
         siret="12345678901234",
         address="10 Rue Test, 75000 Paris",
         tax_status=TaxStatus.FRANCHISE,
-        email_verified=False
+        email_verified=False,
     )
     session.add(user)
 
@@ -32,7 +33,7 @@ def authenticated_client(client: TestClient, session: Session):
         token="test-token-settings",
         expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
         ip_address="127.0.0.1",
-        user_agent="test"
+        user_agent="test",
     )
     session.add(auth_session)
     session.commit()
@@ -44,6 +45,7 @@ def authenticated_client(client: TestClient, session: Session):
 # ────────────────────────────────────────────────
 # GET /api/settings
 # ────────────────────────────────────────────────
+
 
 def test_get_settings_creates_defaults(authenticated_client, session: Session):
     """Test that GET /settings creates default settings if none exist."""
@@ -80,7 +82,7 @@ def test_get_settings_with_existing(authenticated_client, session: Session):
         default_tax_rate=10.0,
         pdf_footer_text="Merci",
         vat_exemption_text="TVA non applicable",
-        late_payment_penalties="3x taux BCE"
+        late_payment_penalties="3x taux BCE",
     )
     session.add(settings)
     session.commit()
@@ -102,6 +104,7 @@ def test_get_settings_with_existing(authenticated_client, session: Session):
 # PUT /api/settings
 # ────────────────────────────────────────────────
 
+
 def test_update_settings(authenticated_client, session: Session):
     """Test updating settings with valid data."""
     client, user = authenticated_client
@@ -117,7 +120,7 @@ def test_update_settings(authenticated_client, session: Session):
         "default_tax_rate": 10.0,
         "pdf_footer_text": "Footer text",
         "vat_exemption_text": "Custom exemption",
-        "late_payment_penalties": "Custom penalties"
+        "late_payment_penalties": "Custom penalties",
     }
 
     response = client.put("/api/settings", json=payload)
@@ -135,17 +138,21 @@ def test_update_settings(authenticated_client, session: Session):
 # SIRET Validation
 # ────────────────────────────────────────────────
 
+
 def test_update_settings_siret_valid_14_digits(authenticated_client):
     """Test that a valid 14-digit SIRET passes."""
     client, user = authenticated_client
 
-    response = client.put("/api/settings", json={
-        "name": "Test",
-        "email": "test@test.com",
-        "siret": "12345678901234",
-        "default_currency": "EUR",
-        "default_tax_rate": 20.0
-    })
+    response = client.put(
+        "/api/settings",
+        json={
+            "name": "Test",
+            "email": "test@test.com",
+            "siret": "12345678901234",
+            "default_currency": "EUR",
+            "default_tax_rate": 20.0,
+        },
+    )
     assert response.status_code == 200
     assert response.json()["siret"] == "12345678901234"
 
@@ -159,13 +166,16 @@ def test_update_settings_siret_with_spaces_rejected(authenticated_client):
     """
     client, user = authenticated_client
 
-    response = client.put("/api/settings", json={
-        "name": "Test",
-        "email": "test@test.com",
-        "siret": "123 456 789 01234",  # 17 chars > max_length=14
-        "default_currency": "EUR",
-        "default_tax_rate": 20.0
-    })
+    response = client.put(
+        "/api/settings",
+        json={
+            "name": "Test",
+            "email": "test@test.com",
+            "siret": "123 456 789 01234",  # 17 chars > max_length=14
+            "default_currency": "EUR",
+            "default_tax_rate": 20.0,
+        },
+    )
     assert response.status_code == 422
 
 
@@ -173,13 +183,16 @@ def test_update_settings_siret_too_short(authenticated_client):
     """Test that SIRET with fewer than 14 digits is rejected."""
     client, user = authenticated_client
 
-    response = client.put("/api/settings", json={
-        "name": "Test",
-        "email": "test@test.com",
-        "siret": "1234567890",  # Only 10 digits
-        "default_currency": "EUR",
-        "default_tax_rate": 20.0
-    })
+    response = client.put(
+        "/api/settings",
+        json={
+            "name": "Test",
+            "email": "test@test.com",
+            "siret": "1234567890",  # Only 10 digits
+            "default_currency": "EUR",
+            "default_tax_rate": 20.0,
+        },
+    )
     assert response.status_code == 422
 
 
@@ -190,13 +203,16 @@ def test_update_settings_siret_too_long(authenticated_client):
     """
     client, user = authenticated_client
 
-    response = client.put("/api/settings", json={
-        "name": "Test",
-        "email": "test@test.com",
-        "siret": "123456789012345",  # 15 digits
-        "default_currency": "EUR",
-        "default_tax_rate": 20.0
-    })
+    response = client.put(
+        "/api/settings",
+        json={
+            "name": "Test",
+            "email": "test@test.com",
+            "siret": "123456789012345",  # 15 digits
+            "default_currency": "EUR",
+            "default_tax_rate": 20.0,
+        },
+    )
     assert response.status_code == 422
 
 
@@ -204,13 +220,16 @@ def test_update_settings_siret_non_numeric(authenticated_client):
     """Test that SIRET with non-digit characters (after space removal) is rejected."""
     client, user = authenticated_client
 
-    response = client.put("/api/settings", json={
-        "name": "Test",
-        "email": "test@test.com",
-        "siret": "ABCDE678901234",
-        "default_currency": "EUR",
-        "default_tax_rate": 20.0
-    })
+    response = client.put(
+        "/api/settings",
+        json={
+            "name": "Test",
+            "email": "test@test.com",
+            "siret": "ABCDE678901234",
+            "default_currency": "EUR",
+            "default_tax_rate": 20.0,
+        },
+    )
     assert response.status_code == 422
 
 
@@ -218,13 +237,16 @@ def test_update_settings_siret_null_allowed(authenticated_client):
     """Test that null SIRET is allowed (optional field)."""
     client, user = authenticated_client
 
-    response = client.put("/api/settings", json={
-        "name": "Test",
-        "email": "test@test.com",
-        "siret": None,
-        "default_currency": "EUR",
-        "default_tax_rate": 20.0
-    })
+    response = client.put(
+        "/api/settings",
+        json={
+            "name": "Test",
+            "email": "test@test.com",
+            "siret": None,
+            "default_currency": "EUR",
+            "default_tax_rate": 20.0,
+        },
+    )
     assert response.status_code == 200
 
 
@@ -232,17 +254,21 @@ def test_update_settings_siret_null_allowed(authenticated_client):
 # Logo URL Validation
 # ────────────────────────────────────────────────
 
+
 def test_update_settings_logo_url_https(authenticated_client):
     """Test that HTTPS logo URL is accepted."""
     client, user = authenticated_client
 
-    response = client.put("/api/settings", json={
-        "name": "Test",
-        "email": "test@test.com",
-        "logo_url": "https://example.com/logo.png",
-        "default_currency": "EUR",
-        "default_tax_rate": 20.0
-    })
+    response = client.put(
+        "/api/settings",
+        json={
+            "name": "Test",
+            "email": "test@test.com",
+            "logo_url": "https://example.com/logo.png",
+            "default_currency": "EUR",
+            "default_tax_rate": 20.0,
+        },
+    )
     assert response.status_code == 200
     assert response.json()["logo_url"] == "https://example.com/logo.png"
 
@@ -251,13 +277,16 @@ def test_update_settings_logo_url_http(authenticated_client):
     """Test that HTTP logo URL is accepted."""
     client, user = authenticated_client
 
-    response = client.put("/api/settings", json={
-        "name": "Test",
-        "email": "test@test.com",
-        "logo_url": "http://example.com/logo.png",
-        "default_currency": "EUR",
-        "default_tax_rate": 20.0
-    })
+    response = client.put(
+        "/api/settings",
+        json={
+            "name": "Test",
+            "email": "test@test.com",
+            "logo_url": "http://example.com/logo.png",
+            "default_currency": "EUR",
+            "default_tax_rate": 20.0,
+        },
+    )
     assert response.status_code == 200
 
 
@@ -265,13 +294,16 @@ def test_update_settings_logo_url_relative_path(authenticated_client):
     """Test that relative paths (starting with /) are accepted."""
     client, user = authenticated_client
 
-    response = client.put("/api/settings", json={
-        "name": "Test",
-        "email": "test@test.com",
-        "logo_url": "/uploads/logo.png",
-        "default_currency": "EUR",
-        "default_tax_rate": 20.0
-    })
+    response = client.put(
+        "/api/settings",
+        json={
+            "name": "Test",
+            "email": "test@test.com",
+            "logo_url": "/uploads/logo.png",
+            "default_currency": "EUR",
+            "default_tax_rate": 20.0,
+        },
+    )
     assert response.status_code == 200
 
 
@@ -280,13 +312,16 @@ def test_update_settings_logo_url_invalid_scheme(authenticated_client):
     client, user = authenticated_client
 
     for bad_url in ["ftp://example.com/logo.png", "file:///etc/passwd", "javascript:alert(1)"]:
-        response = client.put("/api/settings", json={
-            "name": "Test",
-            "email": "test@test.com",
-            "logo_url": bad_url,
-            "default_currency": "EUR",
-            "default_tax_rate": 20.0
-        })
+        response = client.put(
+            "/api/settings",
+            json={
+                "name": "Test",
+                "email": "test@test.com",
+                "logo_url": bad_url,
+                "default_currency": "EUR",
+                "default_tax_rate": 20.0,
+            },
+        )
         assert response.status_code == 422, f"Expected 422 for logo_url={bad_url}"
 
 
@@ -294,13 +329,16 @@ def test_update_settings_logo_url_null_allowed(authenticated_client):
     """Test that null logo URL is allowed."""
     client, user = authenticated_client
 
-    response = client.put("/api/settings", json={
-        "name": "Test",
-        "email": "test@test.com",
-        "logo_url": None,
-        "default_currency": "EUR",
-        "default_tax_rate": 20.0
-    })
+    response = client.put(
+        "/api/settings",
+        json={
+            "name": "Test",
+            "email": "test@test.com",
+            "logo_url": None,
+            "default_currency": "EUR",
+            "default_tax_rate": 20.0,
+        },
+    )
     assert response.status_code == 200
 
 
@@ -308,16 +346,20 @@ def test_update_settings_logo_url_null_allowed(authenticated_client):
 # Field Length Validation
 # ────────────────────────────────────────────────
 
+
 def test_update_settings_name_too_long(authenticated_client):
     """Test that name exceeding max_length=200 is rejected."""
     client, user = authenticated_client
 
-    response = client.put("/api/settings", json={
-        "name": "A" * 201,
-        "email": "test@test.com",
-        "default_currency": "EUR",
-        "default_tax_rate": 20.0
-    })
+    response = client.put(
+        "/api/settings",
+        json={
+            "name": "A" * 201,
+            "email": "test@test.com",
+            "default_currency": "EUR",
+            "default_tax_rate": 20.0,
+        },
+    )
     assert response.status_code == 422
 
 
@@ -325,11 +367,14 @@ def test_update_settings_pdf_footer_too_long(authenticated_client):
     """Test that pdf_footer_text exceeding max_length=2000 is rejected."""
     client, user = authenticated_client
 
-    response = client.put("/api/settings", json={
-        "name": "Test",
-        "email": "test@test.com",
-        "pdf_footer_text": "X" * 2001,
-        "default_currency": "EUR",
-        "default_tax_rate": 20.0
-    })
+    response = client.put(
+        "/api/settings",
+        json={
+            "name": "Test",
+            "email": "test@test.com",
+            "pdf_footer_text": "X" * 2001,
+            "default_currency": "EUR",
+            "default_tax_rate": 20.0,
+        },
+    )
     assert response.status_code == 422

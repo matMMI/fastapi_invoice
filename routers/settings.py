@@ -1,36 +1,38 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlmodel import Session, select
-from typing import Optional
+
 from core.rate_limit import limiter
+from core.security import get_current_user
+from db.session import get_session
 from models.settings import Settings
 from models.user import User
-from db.session import get_session
-from core.security import get_current_user
-from datetime import datetime, timezone
+
 router = APIRouter()
 
+from models.enums import Currency
 from schemas.settings import UserSettingsSchema
-from models.enums import TaxStatus, Currency
+
 
 @router.get("", response_model=UserSettingsSchema)
 def get_settings(
-    session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user)
+    session: Session = Depends(get_session), current_user: User = Depends(get_current_user)
 ):
     """Get unified settings (User identity + App preferences)."""
     statement = select(Settings).where(Settings.user_id == current_user.id)
     settings = session.exec(statement).first()
-    
+
     if not settings:
         settings = Settings(
             user_id=current_user.id,
             company_name=current_user.name or "My Company",
-            company_email=current_user.email
+            company_email=current_user.email,
         )
         session.add(settings)
         session.commit()
         session.refresh(settings)
-        
+
     return UserSettingsSchema(
         # User Identity
         name=current_user.name,
@@ -40,23 +42,25 @@ def get_settings(
         address=current_user.address,
         tax_status=current_user.tax_status,
         logo_url=current_user.logo_url,
-        
         # Settings
         company_email=settings.company_email,
         company_phone=settings.company_phone,
         company_website=settings.company_website,
-        default_currency=Currency(settings.default_currency) if settings.default_currency else Currency.EUR,
+        default_currency=Currency(settings.default_currency)
+        if settings.default_currency
+        else Currency.EUR,
         default_tax_rate=settings.default_tax_rate,
         pdf_footer_text=settings.pdf_footer_text,
         vat_exemption_text=settings.vat_exemption_text,
-        late_payment_penalties=settings.late_payment_penalties
+        late_payment_penalties=settings.late_payment_penalties,
     )
+
 
 @router.put("", response_model=UserSettingsSchema)
 def update_settings(
     payload: UserSettingsSchema,
     session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """Update User identity and App settings."""
     # Validation SIRET: exactement 14 chiffres si renseigne
@@ -64,8 +68,7 @@ def update_settings(
         siret_clean = payload.siret.replace(" ", "")
         if not siret_clean.isdigit() or len(siret_clean) != 14:
             raise HTTPException(
-                status_code=422,
-                detail="Le SIRET doit contenir exactement 14 chiffres."
+                status_code=422, detail="Le SIRET doit contenir exactement 14 chiffres."
             )
         payload.siret = siret_clean
 
@@ -77,53 +80,55 @@ def update_settings(
     current_user.tax_status = payload.tax_status
     if payload.logo_url:
         current_user.logo_url = payload.logo_url
-        
+
     session.add(current_user)
-    
+
     # 2. Update Settings
     statement = select(Settings).where(Settings.user_id == current_user.id)
     settings = session.exec(statement).first()
-    
+
     if not settings:
         settings = Settings(user_id=current_user.id)
-    
-    settings.company_name = payload.business_name or payload.name # Sync
+
+    settings.company_name = payload.business_name or payload.name  # Sync
     settings.company_email = payload.company_email
     settings.company_phone = payload.company_phone
     settings.company_website = payload.company_website
-    settings.company_logo_url = payload.logo_url # Sync
+    settings.company_logo_url = payload.logo_url  # Sync
     settings.default_currency = payload.default_currency.value
     settings.default_tax_rate = payload.default_tax_rate
     settings.pdf_footer_text = payload.pdf_footer_text
-    
+
     if payload.vat_exemption_text is not None:
         settings.vat_exemption_text = payload.vat_exemption_text
     if payload.late_payment_penalties is not None:
         settings.late_payment_penalties = payload.late_payment_penalties
-        
+
     settings.updated_at = datetime.now(timezone.utc)
-    
+
     session.add(settings)
     session.commit()
     session.refresh(current_user)
     session.refresh(settings)
-    
+
     return payload
+
 
 @router.delete("/reset", status_code=204)
 @limiter.limit("1/minute")
 def reset_account_data(
     request: Request,
     session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """
     DANGER: Delete all data for the current user (Quotes, Items, Clients).
     Does NOT delete the User account or global Settings.
     """
     from sqlalchemy import delete as sa_delete
-    from models.quote import Quote, QuoteItem
+
     from models.client import Client
+    from models.quote import Quote, QuoteItem
 
     # Bulk DELETE in correct order to respect FK constraints
     # 1. Delete all QuoteItems for user's quotes

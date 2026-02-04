@@ -4,18 +4,19 @@ Covers: double signing, token revocation, expired tokens, payment workflow,
 pagination edge cases, and special character handling.
 """
 
-import pytest
 import base64
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+
+import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
-from decimal import Decimal
-from datetime import datetime, timedelta, timezone
 
-from models.user import User
-from models.client import Client
-from models.quote import Quote, QuoteItem
 from models.auth import Session as AuthSession
-from models.enums import QuoteStatus, TaxStatus, Currency
+from models.client import Client
+from models.enums import Currency, QuoteStatus, TaxStatus
+from models.quote import Quote, QuoteItem
+from models.user import User
 
 # Minimal valid 1x1 white PNG
 _MINI_PNG = (
@@ -35,15 +36,12 @@ def full_setup(client: TestClient, session: Session):
         email="edge@example.com",
         name="Edge User",
         tax_status=TaxStatus.ASSUJETTI,
-        email_verified=False
+        email_verified=False,
     )
     session.add(user)
 
     db_client = Client(
-        id="edge-client",
-        user_id=user.id,
-        name="Edge Client",
-        email="edge@client.com"
+        id="edge-client", user_id=user.id, name="Edge Client", email="edge@client.com"
     )
     session.add(db_client)
 
@@ -58,7 +56,7 @@ def full_setup(client: TestClient, session: Session):
         tax_status=TaxStatus.ASSUJETTI,
         subtotal=Decimal("100.00"),
         tax_amount=Decimal("20.00"),
-        total=Decimal("120.00")
+        total=Decimal("120.00"),
     )
     session.add(quote)
 
@@ -69,7 +67,7 @@ def full_setup(client: TestClient, session: Session):
         quantity=Decimal("1"),
         unit_price=Decimal("100.00"),
         total=Decimal("100.00"),
-        order=0
+        order=0,
     )
     session.add(item)
 
@@ -79,7 +77,7 @@ def full_setup(client: TestClient, session: Session):
         token="edge-token",
         expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
         ip_address="127.0.0.1",
-        user_agent="test"
+        user_agent="test",
     )
     session.add(auth_session)
     session.commit()
@@ -91,6 +89,7 @@ def full_setup(client: TestClient, session: Session):
 # ────────────────────────────────────────────────
 # Signature: Double Signing Prevention
 # ────────────────────────────────────────────────
+
 
 def test_double_signing_rejected(full_setup, session: Session):
     """Test that signing an already-signed quote returns 400."""
@@ -108,7 +107,7 @@ def test_double_signing_rejected(full_setup, session: Session):
     payload = {
         "signer_name": "First Signer",
         "signer_email": "first@test.com",
-        "signature_data": VALID_SIGNATURE
+        "signature_data": VALID_SIGNATURE,
     }
     r1 = client.post("/api/public/quotes/double-sign-token/sign", json=payload)
     assert r1.status_code == 200
@@ -133,7 +132,7 @@ def test_share_token_revoked_after_signing(full_setup, session: Session):
     payload = {
         "signer_name": "Signer",
         "signer_email": "signer@test.com",
-        "signature_data": VALID_SIGNATURE
+        "signature_data": VALID_SIGNATURE,
     }
     response = client.post("/api/public/quotes/revoke-token/sign", json=payload)
     assert response.status_code == 200
@@ -146,6 +145,7 @@ def test_share_token_revoked_after_signing(full_setup, session: Session):
 # ────────────────────────────────────────────────
 # Signature: Token Expiration
 # ────────────────────────────────────────────────
+
 
 def test_expired_token_returns_410(full_setup, session: Session):
     """Test that an expired share token returns 410 Gone."""
@@ -174,7 +174,7 @@ def test_expired_token_sign_rejected(full_setup, session: Session):
     payload = {
         "signer_name": "Late Signer",
         "signer_email": "late@test.com",
-        "signature_data": VALID_SIGNATURE
+        "signature_data": VALID_SIGNATURE,
     }
     response = client.post("/api/public/quotes/expired-sign-token/sign", json=payload)
     assert response.status_code == 410
@@ -193,6 +193,7 @@ def test_invalid_token_returns_404(full_setup):
 # Signature: Validation
 # ────────────────────────────────────────────────
 
+
 def test_sign_invalid_email(full_setup, session: Session):
     """Test that signing with an invalid email is rejected."""
     client, user, db_client, quote = full_setup
@@ -203,11 +204,14 @@ def test_sign_invalid_email(full_setup, session: Session):
     session.commit()
 
     client.headers = {}
-    response = client.post("/api/public/quotes/validate-email-token/sign", json={
-        "signer_name": "Test",
-        "signer_email": "not-an-email",
-        "signature_data": VALID_SIGNATURE
-    })
+    response = client.post(
+        "/api/public/quotes/validate-email-token/sign",
+        json={
+            "signer_name": "Test",
+            "signer_email": "not-an-email",
+            "signature_data": VALID_SIGNATURE,
+        },
+    )
     assert response.status_code == 422
 
 
@@ -223,20 +227,26 @@ def test_sign_invalid_signature_data(full_setup, session: Session):
     client.headers = {}
 
     # Not valid base64
-    response = client.post("/api/public/quotes/validate-sig-token/sign", json={
-        "signer_name": "Test",
-        "signer_email": "test@test.com",
-        "signature_data": "not-base64-data!!!"
-    })
+    response = client.post(
+        "/api/public/quotes/validate-sig-token/sign",
+        json={
+            "signer_name": "Test",
+            "signer_email": "test@test.com",
+            "signature_data": "not-base64-data!!!",
+        },
+    )
     assert response.status_code == 422
 
     # Valid base64 but not a PNG
     fake_data = base64.b64encode(b"this is not a PNG image").decode()
-    response = client.post("/api/public/quotes/validate-sig-token/sign", json={
-        "signer_name": "Test",
-        "signer_email": "test@test.com",
-        "signature_data": f"data:image/png;base64,{fake_data}"
-    })
+    response = client.post(
+        "/api/public/quotes/validate-sig-token/sign",
+        json={
+            "signer_name": "Test",
+            "signer_email": "test@test.com",
+            "signature_data": f"data:image/png;base64,{fake_data}",
+        },
+    )
     assert response.status_code == 422
 
 
@@ -250,11 +260,14 @@ def test_sign_empty_name_rejected(full_setup, session: Session):
     session.commit()
 
     client.headers = {}
-    response = client.post("/api/public/quotes/validate-name-token/sign", json={
-        "signer_name": "",
-        "signer_email": "test@test.com",
-        "signature_data": VALID_SIGNATURE
-    })
+    response = client.post(
+        "/api/public/quotes/validate-name-token/sign",
+        json={
+            "signer_name": "",
+            "signer_email": "test@test.com",
+            "signature_data": VALID_SIGNATURE,
+        },
+    )
     assert response.status_code == 422
 
 
@@ -262,13 +275,12 @@ def test_sign_empty_name_rejected(full_setup, session: Session):
 # Payment Workflow
 # ────────────────────────────────────────────────
 
+
 def test_mark_as_paid_sets_payment_date(full_setup, session: Session):
     """Test that marking a quote as paid sets the payment_date automatically."""
     client, user, db_client, quote = full_setup
 
-    response = client.put(f"/api/quotes/{quote.id}", json={
-        "is_paid": True
-    })
+    response = client.put(f"/api/quotes/{quote.id}", json={"is_paid": True})
     assert response.status_code == 200
     data = response.json()
     assert data["is_paid"] is True
@@ -292,6 +304,7 @@ def test_mark_as_paid_then_cannot_modify(full_setup, session: Session):
 # Pagination Edge Cases
 # ────────────────────────────────────────────────
 
+
 def test_quotes_pagination(full_setup, session: Session):
     """Test quote pagination with multiple pages."""
     client, user, db_client, quote = full_setup
@@ -304,7 +317,7 @@ def test_quotes_pagination(full_setup, session: Session):
             quote_number=f"Q-PAGE-{i:03d}",
             status=QuoteStatus.DRAFT,
             subtotal=Decimal("100"),
-            total=Decimal("120")
+            total=Decimal("120"),
         )
         session.add(q)
     session.commit()
@@ -338,14 +351,18 @@ def test_quotes_default_pagination(full_setup):
 # Quote Auto-Generated Number
 # ────────────────────────────────────────────────
 
+
 def test_quote_number_auto_generated(full_setup):
     """Test that quote number is auto-generated when not provided."""
     client, user, db_client, quote = full_setup
 
-    response = client.post("/api/quotes", json={
-        "client_id": db_client.id,
-        "items": [{"description": "Service", "quantity": 1, "unit_price": "100.00"}]
-    })
+    response = client.post(
+        "/api/quotes",
+        json={
+            "client_id": db_client.id,
+            "items": [{"description": "Service", "quantity": 1, "unit_price": "100.00"}],
+        },
+    )
     assert response.status_code == 201
     data = response.json()
     assert data["quote_number"].startswith("Q-")
@@ -356,19 +373,23 @@ def test_quote_number_auto_generated(full_setup):
 # Multiple Items Calculation
 # ────────────────────────────────────────────────
 
+
 def test_multiple_items_total_calculation(full_setup):
     """Test that totals are correct with multiple items of varying quantities/prices."""
     client, user, db_client, quote = full_setup
 
-    response = client.post("/api/quotes", json={
-        "client_id": db_client.id,
-        "tax_rate": "20.00",
-        "items": [
-            {"description": "Item A", "quantity": 3, "unit_price": "100.00", "order": 1},
-            {"description": "Item B", "quantity": 2, "unit_price": "50.00", "order": 2},
-            {"description": "Item C", "quantity": 1, "unit_price": "200.00", "order": 3},
-        ]
-    })
+    response = client.post(
+        "/api/quotes",
+        json={
+            "client_id": db_client.id,
+            "tax_rate": "20.00",
+            "items": [
+                {"description": "Item A", "quantity": 3, "unit_price": "100.00", "order": 1},
+                {"description": "Item B", "quantity": 2, "unit_price": "50.00", "order": 2},
+                {"description": "Item C", "quantity": 1, "unit_price": "200.00", "order": 3},
+            ],
+        },
+    )
     assert response.status_code == 201
     data = response.json()
 
@@ -384,24 +405,19 @@ def test_multiple_items_total_calculation(full_setup):
 # Search with Special Characters
 # ────────────────────────────────────────────────
 
+
 def test_search_with_sql_wildcards(full_setup, session: Session):
     """Test that SQL wildcards % and _ in search terms are escaped."""
     client, user, db_client, quote = full_setup
 
     # Create a client whose name literally contains %
     special_client = Client(
-        id="special-client",
-        user_id=user.id,
-        name="100% Organic Corp",
-        email="organic@test.com"
+        id="special-client", user_id=user.id, name="100% Organic Corp", email="organic@test.com"
     )
     session.add(special_client)
 
     normal_client = Client(
-        id="normal-client",
-        user_id=user.id,
-        name="Normal Corp",
-        email="normal@test.com"
+        id="normal-client", user_id=user.id, name="Normal Corp", email="normal@test.com"
     )
     session.add(normal_client)
     session.commit()
@@ -435,6 +451,7 @@ def test_search_with_underscore(full_setup, session: Session):
 # ────────────────────────────────────────────────
 # Share Link Generation
 # ────────────────────────────────────────────────
+
 
 def test_share_link_sets_status_to_sent(full_setup, session: Session):
     """Test that generating a share link changes status to SENT."""
@@ -478,9 +495,13 @@ def test_share_other_users_quote_rejected(full_setup, session: Session):
     """Test that sharing another user's quote returns 404."""
     client, user, db_client, quote = full_setup
 
-    other_user = User(id="other-share-user", email="other-share@test.com", name="Other", email_verified=False)
+    other_user = User(
+        id="other-share-user", email="other-share@test.com", name="Other", email_verified=False
+    )
     session.add(other_user)
-    other_client = Client(id="other-share-client", user_id=other_user.id, name="OC", email="oc@test.com")
+    other_client = Client(
+        id="other-share-client", user_id=other_user.id, name="OC", email="oc@test.com"
+    )
     session.add(other_client)
     other_quote = Quote(
         id="other-share-quote",
@@ -489,7 +510,7 @@ def test_share_other_users_quote_rejected(full_setup, session: Session):
         quote_number="Q-OTHER-SHARE",
         status=QuoteStatus.DRAFT,
         subtotal=Decimal("100"),
-        total=Decimal("120")
+        total=Decimal("120"),
     )
     session.add(other_quote)
     session.commit()

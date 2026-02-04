@@ -1,15 +1,16 @@
 """Tests for the account reset endpoint (DELETE /api/settings/reset)."""
 
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
-from decimal import Decimal
 
-from models.user import User
+from models.auth import Session as AuthSession
 from models.client import Client
 from models.quote import Quote, QuoteItem
-from models.auth import Session as AuthSession
-from datetime import datetime, timedelta, timezone
+from models.user import User
 
 
 @pytest.fixture
@@ -118,9 +119,7 @@ def test_reset_deletes_quotes(user_with_data, session: Session):
     client, user = user_with_data
 
     # Verify quotes exist before reset
-    quotes_before = session.exec(
-        select(Quote).where(Quote.user_id == user.id)
-    ).all()
+    quotes_before = session.exec(select(Quote).where(Quote.user_id == user.id)).all()
     assert len(quotes_before) == 2
 
     response = client.delete("/api/settings/reset")
@@ -128,9 +127,7 @@ def test_reset_deletes_quotes(user_with_data, session: Session):
 
     # Verify quotes are deleted
     session.expire_all()
-    quotes_after = session.exec(
-        select(Quote).where(Quote.user_id == user.id)
-    ).all()
+    quotes_after = session.exec(select(Quote).where(Quote.user_id == user.id)).all()
     assert len(quotes_after) == 0
 
 
@@ -156,9 +153,7 @@ def test_reset_deletes_clients(user_with_data, session: Session):
     client, user = user_with_data
 
     # Verify clients exist before reset
-    clients_before = session.exec(
-        select(Client).where(Client.user_id == user.id)
-    ).all()
+    clients_before = session.exec(select(Client).where(Client.user_id == user.id)).all()
     assert len(clients_before) == 2
 
     response = client.delete("/api/settings/reset")
@@ -166,9 +161,7 @@ def test_reset_deletes_clients(user_with_data, session: Session):
 
     # Verify clients are deleted
     session.expire_all()
-    clients_after = session.exec(
-        select(Client).where(Client.user_id == user.id)
-    ).all()
+    clients_after = session.exec(select(Client).where(Client.user_id == user.id)).all()
     assert len(clients_after) == 0
 
 
@@ -239,12 +232,8 @@ def test_reset_does_not_affect_other_users(user_with_data, session: Session):
 
     # Verify other user's data is intact
     session.expire_all()
-    other_clients = session.exec(
-        select(Client).where(Client.user_id == other_user.id)
-    ).all()
+    other_clients = session.exec(select(Client).where(Client.user_id == other_user.id)).all()
     assert len(other_clients) == 1
 
-    other_quotes = session.exec(
-        select(Quote).where(Quote.user_id == other_user.id)
-    ).all()
+    other_quotes = session.exec(select(Quote).where(Quote.user_id == other_user.id)).all()
     assert len(other_quotes) == 1

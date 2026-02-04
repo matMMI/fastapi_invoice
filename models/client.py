@@ -1,13 +1,14 @@
-from sqlmodel import SQLModel, Field, Relationship
-from uuid import uuid4
 from datetime import datetime, timezone
+from uuid import uuid4
+
+from sqlmodel import Field, Relationship, SQLModel
 
 
 class Client(SQLModel, table=True):
     """Client/customer entity for quote recipients."""
-    
+
     __tablename__ = "client"  # type: ignore
-    
+
     id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
     user_id: str = Field(foreign_key="user.id", index=True)
     name: str = Field(max_length=255)
@@ -18,8 +19,7 @@ class Client(SQLModel, table=True):
     vat_number: str | None = Field(default=None, max_length=50)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    
+
     quotes: list["Quote"] = Relationship(
-        back_populates="client",
-        sa_relationship_kwargs={"cascade": "all, delete-orphan"}
+        back_populates="client", sa_relationship_kwargs={"cascade": "all, delete-orphan"}
     )

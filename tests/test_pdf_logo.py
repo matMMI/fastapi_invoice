@@ -1,7 +1,6 @@
 """Tests for PDF logo URL resolution logic."""
 
 import os
-import pytest
 from unittest.mock import patch
 
 from services.pdf_generator import _is_safe_url

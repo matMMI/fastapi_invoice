@@ -1,27 +1,23 @@
 """Tests for client management API."""
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from models.user import User
-from models.client import Client
 from models.auth import Session as AuthSession
-from datetime import datetime, timedelta, timezone
+from models.client import Client
+from models.user import User
 
 
 @pytest.fixture
 def authenticated_client(client: TestClient, session: Session):
     """Create an authenticated test client."""
     # Create user
-    user = User(
-        id="test-user-id",
-        email="test@example.com",
-        name="Test User",
-        email_verified=False
-    )
+    user = User(id="test-user-id", email="test@example.com", name="Test User", email_verified=False)
     session.add(user)
-    
+
     # Create session
     auth_session = AuthSession(
         id="test-session-id",
@@ -29,11 +25,11 @@ def authenticated_client(client: TestClient, session: Session):
         token="test-token",
         expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
         ip_address="127.0.0.1",
-        user_agent="test"
+        user_agent="test",
     )
     session.add(auth_session)
     session.commit()
-    
+
     # Add auth header to client
     client.headers = {"Authorization": "Bearer test-token"}
     return client, user
@@ -42,13 +38,12 @@ def authenticated_client(client: TestClient, session: Session):
 def test_create_client(authenticated_client, session: Session):
     """Test creating a new client."""
     client, user = authenticated_client
-    
-    response = client.post("/api/clients", json={
-        "name": "John Doe",
-        "email": "john@example.com",
-        "company": "Acme Corp"
-    })
-    
+
+    response = client.post(
+        "/api/clients",
+        json={"name": "John Doe", "email": "john@example.com", "company": "Acme Corp"},
+    )
+
     assert response.status_code == 201
     data = response.json()
     assert data["name"] == "John Doe"
@@ -59,16 +54,12 @@ def test_create_client(authenticated_client, session: Session):
 def test_list_clients(authenticated_client, session: Session):
     """Test listing clients."""
     client, user = authenticated_client
-    
+
     # Create test clients
-    test_client = Client(
-        user_id=user.id,
-        name="Test Client",
-        email="test@client.com"
-    )
+    test_client = Client(user_id=user.id, name="Test Client", email="test@client.com")
     session.add(test_client)
     session.commit()
-    
+
     response = client.get("/api/clients")
     assert response.status_code == 200
     data = response.json()
@@ -79,29 +70,23 @@ def test_list_clients(authenticated_client, session: Session):
 def test_cannot_access_other_users_clients(authenticated_client, session: Session):
     """Test that users can only see their own clients."""
     client, user = authenticated_client
-    
+
     # Create another user's client
     other_user = User(
-        id="other-user-id",
-        email="other@example.com",
-        name="Other User",
-        email_verified=False
+        id="other-user-id", email="other@example.com", name="Other User", email_verified=False
     )
     session.add(other_user)
-    
-    other_client = Client(
-        user_id=other_user.id,
-        name="Other Client",
-        email="other@client.com"
-    )
+
+    other_client = Client(user_id=other_user.id, name="Other Client", email="other@client.com")
     session.add(other_client)
     session.commit()
-    
+
     # Try to list clients
     response = client.get("/api/clients")
     assert response.status_code == 200
     data = response.json()
     assert len(data["clients"]) == 0  # Should not see other user's clients
+
 
 def test_search_clients(authenticated_client, session: Session):
     """Test searching clients by name or email."""
@@ -109,27 +94,15 @@ def test_search_clients(authenticated_client, session: Session):
 
     # Create clients
     # 1. Matches "Alpha" in name
-    c1 = Client(
-        user_id=user.id,
-        name="Alpha Industries",
-        email="info@alpha.com"
-    )
+    c1 = Client(user_id=user.id, name="Alpha Industries", email="info@alpha.com")
     session.add(c1)
 
     # 2. Matches "Alpha" in email
-    c2 = Client(
-        user_id=user.id,
-        name="Beta Corp",
-        email="contact@alpha-beta.com"
-    )
+    c2 = Client(user_id=user.id, name="Beta Corp", email="contact@alpha-beta.com")
     session.add(c2)
 
     # 3. No match
-    c3 = Client(
-        user_id=user.id,
-        name="Gamma Inc",
-        email="gamma@test.com"
-    )
+    c3 = Client(user_id=user.id, name="Gamma Inc", email="gamma@test.com")
     session.add(c3)
     session.commit()
 
@@ -139,7 +112,7 @@ def test_search_clients(authenticated_client, session: Session):
     data = res.json()
     assert data["total"] == 2
     assert len(data["clients"]) == 2
-    
+
     names = {c["name"] for c in data["clients"]}
     assert "Alpha Industries" in names
     assert "Beta Corp" in names
@@ -163,16 +136,13 @@ def test_search_clients(authenticated_client, session: Session):
 # GET /api/clients/{client_id}
 # ────────────────────────────────────────────────
 
+
 def test_get_client_by_id(authenticated_client, session: Session):
     """Test retrieving a single client by ID."""
     client, user = authenticated_client
 
     db_client = Client(
-        id="client-get-id",
-        user_id=user.id,
-        name="Get Me",
-        email="get@test.com",
-        company="GetCo"
+        id="client-get-id", user_id=user.id, name="Get Me", email="get@test.com", company="GetCo"
     )
     session.add(db_client)
     session.commit()
@@ -196,9 +166,13 @@ def test_get_client_other_user(authenticated_client, session: Session):
     """Test that accessing another user's client returns 404 (IDOR prevention)."""
     client, user = authenticated_client
 
-    other_user = User(id="other-user-get", email="other-get@test.com", name="Other", email_verified=False)
+    other_user = User(
+        id="other-user-get", email="other-get@test.com", name="Other", email_verified=False
+    )
     session.add(other_user)
-    other_client = Client(id="other-client-id", user_id=other_user.id, name="Secret", email="secret@test.com")
+    other_client = Client(
+        id="other-client-id", user_id=other_user.id, name="Secret", email="secret@test.com"
+    )
     session.add(other_client)
     session.commit()
 
@@ -210,25 +184,26 @@ def test_get_client_other_user(authenticated_client, session: Session):
 # PUT /api/clients/{client_id}
 # ────────────────────────────────────────────────
 
+
 def test_update_client(authenticated_client, session: Session):
     """Test updating a client's fields."""
     client, user = authenticated_client
 
     db_client = Client(
-        id="client-update-id",
-        user_id=user.id,
-        name="Old Name",
-        email="old@test.com"
+        id="client-update-id", user_id=user.id, name="Old Name", email="old@test.com"
     )
     session.add(db_client)
     session.commit()
 
-    response = client.put("/api/clients/client-update-id", json={
-        "name": "New Name",
-        "email": "new@test.com",
-        "company": "New Corp",
-        "phone": "+33612345678"
-    })
+    response = client.put(
+        "/api/clients/client-update-id",
+        json={
+            "name": "New Name",
+            "email": "new@test.com",
+            "company": "New Corp",
+            "phone": "+33612345678",
+        },
+    )
     assert response.status_code == 200
     data = response.json()
     assert data["name"] == "New Name"
@@ -240,17 +215,12 @@ def test_update_client_partial(authenticated_client, session: Session):
     client, user = authenticated_client
 
     db_client = Client(
-        id="client-partial-id",
-        user_id=user.id,
-        name="Original",
-        email="original@test.com"
+        id="client-partial-id", user_id=user.id, name="Original", email="original@test.com"
     )
     session.add(db_client)
     session.commit()
 
-    response = client.put("/api/clients/client-partial-id", json={
-        "name": "Updated"
-    })
+    response = client.put("/api/clients/client-partial-id", json={"name": "Updated"})
     assert response.status_code == 200
     data = response.json()
     assert data["name"] == "Updated"
@@ -268,9 +238,13 @@ def test_update_client_other_user(authenticated_client, session: Session):
     """Test that updating another user's client returns 404."""
     client, user = authenticated_client
 
-    other_user = User(id="other-user-upd", email="other-upd@test.com", name="Other", email_verified=False)
+    other_user = User(
+        id="other-user-upd", email="other-upd@test.com", name="Other", email_verified=False
+    )
     session.add(other_user)
-    other_client = Client(id="other-client-upd", user_id=other_user.id, name="Secret", email="secret@test.com")
+    other_client = Client(
+        id="other-client-upd", user_id=other_user.id, name="Secret", email="secret@test.com"
+    )
     session.add(other_client)
     session.commit()
 
@@ -282,20 +256,14 @@ def test_update_client_mass_assignment_blocked(authenticated_client, session: Se
     """Test that fields outside ALLOWED_UPDATE_FIELDS are rejected by extra='forbid'."""
     client, user = authenticated_client
 
-    db_client = Client(
-        id="client-mass-id",
-        user_id=user.id,
-        name="Safe",
-        email="safe@test.com"
-    )
+    db_client = Client(id="client-mass-id", user_id=user.id, name="Safe", email="safe@test.com")
     session.add(db_client)
     session.commit()
 
     # user_id is not in ALLOWED_UPDATE_FIELDS and extra="forbid" rejects unknown fields
-    response = client.put("/api/clients/client-mass-id", json={
-        "name": "Still Safe",
-        "user_id": "attacker-id"
-    })
+    response = client.put(
+        "/api/clients/client-mass-id", json={"name": "Still Safe", "user_id": "attacker-id"}
+    )
     assert response.status_code == 422  # Rejected by Pydantic
 
 
@@ -303,19 +271,11 @@ def test_update_client_extra_field_rejected(authenticated_client, session: Sessi
     """Test that unknown extra fields are rejected by extra='forbid'."""
     client, user = authenticated_client
 
-    db_client = Client(
-        id="client-extra-id",
-        user_id=user.id,
-        name="Test",
-        email="test@test.com"
-    )
+    db_client = Client(id="client-extra-id", user_id=user.id, name="Test", email="test@test.com")
     session.add(db_client)
     session.commit()
 
-    response = client.put("/api/clients/client-extra-id", json={
-        "name": "Test",
-        "is_admin": True
-    })
+    response = client.put("/api/clients/client-extra-id", json={"name": "Test", "is_admin": True})
     assert response.status_code == 422
 
 
@@ -323,15 +283,13 @@ def test_update_client_extra_field_rejected(authenticated_client, session: Sessi
 # DELETE /api/clients/{client_id}
 # ────────────────────────────────────────────────
 
+
 def test_delete_client(authenticated_client, session: Session):
     """Test deleting a client."""
     client, user = authenticated_client
 
     db_client = Client(
-        id="client-delete-id",
-        user_id=user.id,
-        name="Delete Me",
-        email="delete@test.com"
+        id="client-delete-id", user_id=user.id, name="Delete Me", email="delete@test.com"
     )
     session.add(db_client)
     session.commit()
@@ -355,9 +313,13 @@ def test_delete_client_other_user(authenticated_client, session: Session):
     """Test that deleting another user's client returns 404."""
     client, user = authenticated_client
 
-    other_user = User(id="other-user-del", email="other-del@test.com", name="Other", email_verified=False)
+    other_user = User(
+        id="other-user-del", email="other-del@test.com", name="Other", email_verified=False
+    )
     session.add(other_user)
-    other_client = Client(id="other-client-del", user_id=other_user.id, name="Secret", email="secret@test.com")
+    other_client = Client(
+        id="other-client-del", user_id=other_user.id, name="Secret", email="secret@test.com"
+    )
     session.add(other_client)
     session.commit()
 
@@ -373,34 +335,38 @@ def test_delete_client_other_user(authenticated_client, session: Session):
 # Input Validation
 # ────────────────────────────────────────────────
 
+
 def test_create_client_invalid_email(authenticated_client):
     """Test that invalid email format is rejected."""
     client, user = authenticated_client
-    response = client.post("/api/clients", json={
-        "name": "Test",
-        "email": "not-an-email"
-    })
+    response = client.post("/api/clients", json={"name": "Test", "email": "not-an-email"})
     assert response.status_code == 422
 
 
 def test_create_client_name_too_long(authenticated_client):
     """Test that name exceeding max_length is rejected."""
     client, user = authenticated_client
-    response = client.post("/api/clients", json={
-        "name": "A" * 101,  # max_length=100
-        "email": "test@test.com"
-    })
+    response = client.post(
+        "/api/clients",
+        json={
+            "name": "A" * 101,  # max_length=100
+            "email": "test@test.com",
+        },
+    )
     assert response.status_code == 422
 
 
 def test_create_client_extra_fields_rejected(authenticated_client):
     """Test that extra fields in create payload are rejected."""
     client, user = authenticated_client
-    response = client.post("/api/clients", json={
-        "name": "Test",
-        "email": "test@test.com",
-        "is_admin": True  # Unknown field
-    })
+    response = client.post(
+        "/api/clients",
+        json={
+            "name": "Test",
+            "email": "test@test.com",
+            "is_admin": True,  # Unknown field
+        },
+    )
     assert response.status_code == 422
 
 
@@ -420,11 +386,14 @@ def test_create_client_missing_required_fields(authenticated_client):
 def test_create_client_notes_too_long(authenticated_client):
     """Test that notes exceeding max_length is rejected."""
     client, user = authenticated_client
-    response = client.post("/api/clients", json={
-        "name": "Test",
-        "email": "test@test.com",
-        "notes": "X" * 5001  # max_length=5000
-    })
+    response = client.post(
+        "/api/clients",
+        json={
+            "name": "Test",
+            "email": "test@test.com",
+            "notes": "X" * 5001,  # max_length=5000
+        },
+    )
     assert response.status_code == 422
 
 

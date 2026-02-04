@@ -1,26 +1,28 @@
-from sqlmodel import SQLModel, Field
-from uuid import uuid4
 from datetime import datetime, timezone
+from uuid import uuid4
+
+from sqlmodel import Field, SQLModel
+
 from models.enums import TaxStatus
 
 
 class User(SQLModel, table=True):
     """User account for authentication and quote ownership."""
-    
+
     __tablename__ = "user"  # type: ignore
-    
+
     id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
     email: str = Field(unique=True, index=True, max_length=255)
     username: str | None = Field(default=None, unique=True, index=True, max_length=255)
     password_hash: str | None = Field(default=None, max_length=255)
     name: str = Field(max_length=255)
     business_name: str | None = Field(default=None, max_length=255)
-    
+
     # Legal Identity
     siret: str | None = Field(default=None, max_length=50)
     address: str | None = Field(default=None)  # Text field for full address
     tax_status: TaxStatus = Field(default=TaxStatus.FRANCHISE)
-    
+
     logo_url: str | None = Field(default=None, max_length=500)
     image: str | None = Field(default=None, max_length=500)
     email_verified: bool = Field(default=False)

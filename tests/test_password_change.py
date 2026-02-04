@@ -11,6 +11,7 @@ These tests verify the backend infrastructure is in place:
 
 import pytest
 from sqlmodel import Session, select
+
 from models.user import User
 
 
@@ -23,7 +24,7 @@ def user_with_password_field(session: Session):
         username="password_tester",
         name="Password Tester",
         email_verified=True,
-        password_hash="$2b$12$dummy_bcrypt_hash_for_testing"
+        password_hash="$2b$12$dummy_bcrypt_hash_for_testing",
     )
     session.add(user)
     session.commit()
@@ -35,7 +36,7 @@ def user_with_password_field(session: Session):
 def test_password_change_field_exists_on_user_model(user_with_password_field):
     """Test that User model has password_hash field."""
     user = user_with_password_field
-    assert hasattr(user, 'password_hash')
+    assert hasattr(user, "password_hash")
     assert user.password_hash is not None
 
 
@@ -80,7 +81,7 @@ def test_password_never_exposed_in_db_schema(session: Session):
         username="schema_user",
         name="Schema User",
         email_verified=False,
-        password_hash="test_hash"
+        password_hash="test_hash",
     )
     session.add(user)
     session.commit()
@@ -89,7 +90,7 @@ def test_password_never_exposed_in_db_schema(session: Session):
     db_user = session.exec(select(User).where(User.id == "schema-check")).first()
     assert db_user is not None
     # Confirm password_hash field exists (not just 'password')
-    assert hasattr(db_user, 'password_hash')
+    assert hasattr(db_user, "password_hash")
 
 
 def test_password_update_updates_user_record(user_with_password_field, session: Session):
@@ -149,7 +150,7 @@ def test_multiple_users_with_different_passwords(session: Session):
         username="user1",
         name="User One",
         email_verified=False,
-        password_hash="$2b$12$hash_for_user_1"
+        password_hash="$2b$12$hash_for_user_1",
     )
     user2 = User(
         id="user-2",
@@ -157,7 +158,7 @@ def test_multiple_users_with_different_passwords(session: Session):
         username="user2",
         name="User Two",
         email_verified=False,
-        password_hash="$2b$12$hash_for_user_2"
+        password_hash="$2b$12$hash_for_user_2",
     )
     session.add(user1)
     session.add(user2)
@@ -209,9 +210,11 @@ def test_password_change_error_detection():
     lower_message = error_message.lower()
 
     # Detection logic from user-profile-form.tsx
-    is_password_error = ("invalid" in lower_message or
-                        "password too" in lower_message or
-                        "credential" in lower_message)
+    is_password_error = (
+        "invalid" in lower_message
+        or "password too" in lower_message
+        or "credential" in lower_message
+    )
 
     assert is_password_error
 

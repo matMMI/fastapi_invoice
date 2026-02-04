@@ -1,21 +1,22 @@
 """
 Share and sign quotes - public endpoints for electronic signature.
 """
-from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlmodel import Session, select
-from pydantic import BaseModel, Field, field_validator
-from datetime import datetime, timezone, timedelta
-from uuid import uuid4
+
 import base64
 import logging
+from datetime import datetime, timedelta, timezone
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field, field_validator
+from sqlmodel import Session, select
 
 from core.rate_limit import limiter
-
+from core.security import get_current_user
 from db.session import get_session
-from models.quote import Quote, QuoteItem
 from models.client import Client
 from models.enums import QuoteStatus
-from core.security import get_current_user
+from models.quote import Quote, QuoteItem
 from models.user import User
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,7 @@ router = APIRouter(tags=["share"])
 
 
 # ============ Schemas ============
+
 
 class ShareResponse(BaseModel):
     share_url: str
@@ -67,7 +69,8 @@ class SignRequest(BaseModel):
     @classmethod
     def validate_email(cls, v: str) -> str:
         import re
-        if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', v):
+
+        if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", v):
             raise ValueError("Adresse email invalide")
         return v
 
@@ -94,57 +97,53 @@ class SignResponse(BaseModel):
 
 # ============ Authenticated Endpoints ============
 
+
 @router.post("/quotes/{quote_id}/share", response_model=ShareResponse)
 async def generate_share_link(
     quote_id: str,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_session)
+    db: Session = Depends(get_session),
 ):
     """Generate a shareable link for a quote (owner only)."""
     quote = db.exec(
         select(Quote).where(Quote.id == quote_id, Quote.user_id == current_user.id)
     ).first()
-    
+
     if not quote:
         raise HTTPException(status_code=404, detail="Devis non trouvé")
-    
+
     # Generate unique token
     token = str(uuid4())
     expires_at = datetime.now(timezone.utc) + timedelta(days=30)
-    
+
     quote.share_token = token
     quote.share_token_expires_at = expires_at
     quote.status = QuoteStatus.SENT
     quote.sent_at = datetime.now(timezone.utc)
     quote.updated_at = datetime.now(timezone.utc)
-    
+
     db.add(quote)
     db.commit()
     db.refresh(quote)
-    
+
     # Build the share URL (frontend will be at /sign/[token])
     share_url = f"/sign/{token}"
-    
+
     return ShareResponse(share_url=share_url, expires_at=expires_at)
 
 
 # ============ Public Endpoints (No Auth) ============
 
+
 @router.get("/public/quotes/{token}", response_model=PublicQuoteResponse)
 @limiter.limit("10/minute")
-async def get_public_quote(
-    request: Request,
-    token: str,
-    db: Session = Depends(get_session)
-):
+async def get_public_quote(request: Request, token: str, db: Session = Depends(get_session)):
     """Get quote details by share token (public, no auth required)."""
-    quote = db.exec(
-        select(Quote).where(Quote.share_token == token)
-    ).first()
-    
+    quote = db.exec(select(Quote).where(Quote.share_token == token)).first()
+
     if not quote:
         raise HTTPException(status_code=404, detail="Devis non trouvé ou lien invalide")
-    
+
     # Allow permanent access to signed quotes, enforce expiration for unsigned
     if not quote.signed_at and quote.share_token_expires_at:
         expires_at = quote.share_token_expires_at
@@ -157,12 +156,12 @@ async def get_public_quote(
     client = db.exec(select(Client).where(Client.id == quote.client_id)).first()
     if not client:
         raise HTTPException(status_code=404, detail="Client associé non trouvé")
-    
+
     # Get quote items
     items = db.exec(
         select(QuoteItem).where(QuoteItem.quote_id == quote.id).order_by(QuoteItem.order)
     ).all()
-    
+
     return PublicQuoteResponse(
         quote_number=quote.quote_number,
         client_name=client.name,
@@ -180,7 +179,7 @@ async def get_public_quote(
                 description=item.description,
                 quantity=float(item.quantity),
                 unit_price=float(item.unit_price),
-                total=float(item.total)
+                total=float(item.total),
             )
             for item in items
         ],
@@ -188,26 +187,21 @@ async def get_public_quote(
         is_signed=quote.signed_at is not None,
         signed_at=quote.signed_at,
         signer_name=quote.signer_name,
-        created_at=quote.created_at
+        created_at=quote.created_at,
     )
 
 
 @router.post("/public/quotes/{token}/sign", response_model=SignResponse)
 @limiter.limit("3/minute")
 async def sign_quote(
-    token: str,
-    sign_data: SignRequest,
-    request: Request,
-    db: Session = Depends(get_session)
+    token: str, sign_data: SignRequest, request: Request, db: Session = Depends(get_session)
 ):
     """Sign a quote electronically (public, no auth required)."""
-    quote = db.exec(
-        select(Quote).where(Quote.share_token == token)
-    ).first()
-    
+    quote = db.exec(select(Quote).where(Quote.share_token == token)).first()
+
     if not quote:
         raise HTTPException(status_code=404, detail="Devis non trouvé ou lien invalide")
-    
+
     # Check expiration
     if quote.share_token_expires_at:
         expires_at = quote.share_token_expires_at
@@ -216,11 +210,11 @@ async def sign_quote(
             expires_at = expires_at.replace(tzinfo=timezone.utc)
         if expires_at < datetime.now(timezone.utc):
             raise HTTPException(status_code=410, detail="Ce lien de partage a expiré")
-    
+
     # Check if already signed
     if quote.signed_at:
         raise HTTPException(status_code=400, detail="Ce devis a déjà été signé")
-    
+
     # Save signature (IP volontairement non capturee - respect vie privee)
     now = datetime.now(timezone.utc)
     quote.signed_at = now
@@ -237,37 +231,30 @@ async def sign_quote(
     db.add(quote)
     db.commit()
     db.refresh(quote)
-    
-    return SignResponse(
-        success=True,
-        message="Devis signé avec succès",
-        signed_at=now
-    )
+
+    return SignResponse(success=True, message="Devis signé avec succès", signed_at=now)
 
 
 @router.get("/public/quotes/{token}/pdf")
 @limiter.limit("5/minute")
-async def get_public_quote_pdf(
-    request: Request,
-    token: str,
-    db: Session = Depends(get_session)
-):
+async def get_public_quote_pdf(request: Request, token: str, db: Session = Depends(get_session)):
     """Download quote PDF (public, no auth required)."""
-    from services.pdf_generator import generate_quote_pdf
-    from models.settings import Settings
     from fastapi.responses import Response
     from sqlalchemy.orm import selectinload
 
+    from models.settings import Settings
+    from services.pdf_generator import generate_quote_pdf
+
     # Fetch quote with relations (needed for PDF)
-    statement = select(Quote).where(Quote.share_token == token).options(
-        selectinload(Quote.client),
-        selectinload(Quote.items)
+    statement = (
+        select(Quote)
+        .where(Quote.share_token == token)
+        .options(selectinload(Quote.client), selectinload(Quote.items))
     )
     quote = db.exec(statement).first()
-    
+
     if not quote:
         raise HTTPException(status_code=404, detail="Devis non trouvé ou lien invalide")
-    
 
     # Allow permanent access to signed quotes, enforce expiration for unsigned
     if not quote.signed_at and quote.share_token_expires_at:
@@ -281,10 +268,16 @@ async def get_public_quote_pdf(
     settings = db.exec(select(Settings).where(Settings.user_id == quote.user_id)).first()
     if not settings:
         # Fallback settings
-        settings = Settings(user_id=quote.user_id, company_name="My Company", default_currency="EUR", default_tax_rate=20.0)
+        settings = Settings(
+            user_id=quote.user_id,
+            company_name="My Company",
+            default_currency="EUR",
+            default_tax_rate=20.0,
+        )
 
     # Get the user (owner of the quote) for PDF generation
     from models.user import User
+
     user = db.get(User, quote.user_id)
     if not user:
         raise HTTPException(status_code=500, detail="Utilisateur non trouvé")
@@ -294,15 +287,14 @@ async def get_public_quote_pdf(
     except Exception as e:
         logger.error(f"PDF generation failed for quote {quote.id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Erreur lors de la génération du PDF")
-    
+
     import re
-    safe_number = re.sub(r'[^\w\s\-.]', '', quote.quote_number).strip()
+
+    safe_number = re.sub(r"[^\w\s\-.]", "", quote.quote_number).strip()
     filename = f"Devis_{safe_number}.pdf"
 
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"'
-        }
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

@@ -1,7 +1,10 @@
-from pydantic import BaseModel, Field, field_validator
-from typing import Optional
 import re
-from models.enums import TaxStatus, Currency
+from typing import Optional
+
+from pydantic import BaseModel, Field, field_validator
+
+from models.enums import Currency, TaxStatus
+
 
 class UserSettingsSchema(BaseModel):
     """Unified settings schema combining User identity and App preferences."""
@@ -23,7 +26,7 @@ class UserSettingsSchema(BaseModel):
         # Allow relative paths starting with / or valid http(s) URLs
         if v.startswith("/"):
             return v
-        if not re.match(r'^https?://', v):
+        if not re.match(r"^https?://", v):
             raise ValueError("L'URL du logo doit commencer par http:// ou https://")
         return v
 

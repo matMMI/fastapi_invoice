@@ -1,6 +1,8 @@
-from sqlmodel import SQLModel, Field
 from datetime import datetime
 from uuid import uuid4
+
+from sqlmodel import Field, SQLModel
+
 
 class Session(SQLModel, table=True):
     id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
@@ -11,6 +13,7 @@ class Session(SQLModel, table=True):
     user_agent: str | None = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
 
 class Account(SQLModel, table=True):
     id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
@@ -23,6 +26,7 @@ class Account(SQLModel, table=True):
     password_hash: str | None = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
 
 class Verification(SQLModel, table=True):
     id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)

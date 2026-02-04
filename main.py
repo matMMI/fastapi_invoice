@@ -1,10 +1,11 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+
 from core.config import settings
 from core.rate_limit import limiter
-from routers import clients, quotes, pdf, dashboard, share
+from routers import clients, dashboard, pdf, quotes, share
 from routers import settings as settings_router
 
 app = FastAPI(
@@ -33,9 +34,13 @@ app.include_router(pdf.router, prefix="/api", tags=["pdf"])
 app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
 app.include_router(settings_router.router, prefix="/api/settings", tags=["settings"])
 app.include_router(share.router, prefix="/api", tags=["share"])
+
+
 @app.get("/")
 async def root():
     return {"message": "Devis Generator API", "status": "ok"}
+
+
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}

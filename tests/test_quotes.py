@@ -1,14 +1,15 @@
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
-from decimal import Decimal
-from datetime import datetime, timedelta, timezone
 
-from models.user import User
-from models.client import Client
-from models.quote import Quote, QuoteItem
-from models.enums import QuoteStatus, Currency, TaxStatus
 from models.auth import Session as AuthSession
+from models.client import Client
+from models.enums import Currency, QuoteStatus, TaxStatus
+from models.quote import Quote, QuoteItem
+from models.user import User
 
 
 @pytest.fixture
@@ -19,16 +20,13 @@ def authenticated_client(client: TestClient, session: Session):
         email="test@example.com",
         name="Test User",
         email_verified=False,
-        tax_status=TaxStatus.ASSUJETTI # Required for tax calc test
+        tax_status=TaxStatus.ASSUJETTI,  # Required for tax calc test
     )
     session.add(user)
-    
+
     # Create client for quotes
     db_client = Client(
-        id="test-client-id",
-        user_id=user.id,
-        name="Test Client",
-        email="client@test.com"
+        id="test-client-id", user_id=user.id, name="Test Client", email="client@test.com"
     )
     session.add(db_client)
 
@@ -39,11 +37,11 @@ def authenticated_client(client: TestClient, session: Session):
         token="test-token",
         expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
         ip_address="127.0.0.1",
-        user_agent="test"
+        user_agent="test",
     )
     session.add(auth_session)
     session.commit()
-    
+
     # Add auth header to client
     client.headers = {"Authorization": "Bearer test-token"}
     return client, user, db_client
@@ -51,32 +49,22 @@ def authenticated_client(client: TestClient, session: Session):
 
 def test_create_quote(authenticated_client, session: Session):
     client, user, db_client = authenticated_client
-    
+
     payload = {
         "client_id": db_client.id,
         "quote_number": "Q-001",
         "currency": "EUR",
         "tax_rate": "20.00",
         "items": [
-            {
-                "description": "Service A",
-                "quantity": 2,
-                "unit_price": "100.00",
-                "order": 1
-            },
-            {
-                "description": "Service B",
-                "quantity": 1,
-                "unit_price": "50.00",
-                "order": 2
-            }
-        ]
+            {"description": "Service A", "quantity": 2, "unit_price": "100.00", "order": 1},
+            {"description": "Service B", "quantity": 1, "unit_price": "50.00", "order": 2},
+        ],
     }
 
     response = client.post("/api/quotes", json=payload)
     assert response.status_code == 201
     data = response.json()
-    
+
     assert data["quote_number"] == "Q-001"
     assert data["client_id"] == db_client.id
     assert data["user_id"] == user.id
@@ -89,7 +77,7 @@ def test_create_quote(authenticated_client, session: Session):
 def test_get_quote(authenticated_client, session: Session):
     """Test fetching a single quote by ID returns all expected fields."""
     client, user, db_client = authenticated_client
-    
+
     # Create a quote with items
     quote = Quote(
         id="test-quote-get",
@@ -102,25 +90,25 @@ def test_get_quote(authenticated_client, session: Session):
         subtotal=Decimal("100.00"),
         tax_amount=Decimal("20.00"),
         total=Decimal("120.00"),
-        notes="Test notes"
+        notes="Test notes",
     )
     session.add(quote)
-    
+
     item = QuoteItem(
         quote_id=quote.id,
         description="Test Service",
         quantity=Decimal("2"),
         unit_price=Decimal("50.00"),
         total=Decimal("100.00"),
-        order=1
+        order=1,
     )
     session.add(item)
     session.commit()
-    
+
     response = client.get(f"/api/quotes/{quote.id}")
     assert response.status_code == 200
     data = response.json()
-    
+
     # Verify all essential fields
     assert data["id"] == "test-quote-get"
     assert data["quote_number"] == "Q-GET-001"
@@ -133,13 +121,13 @@ def test_get_quote(authenticated_client, session: Session):
     assert Decimal(str(data["tax_amount"])) == Decimal("20.00")
     assert Decimal(str(data["total"])) == Decimal("120.00")
     assert data["notes"] == "Test notes"
-    
+
     # Verify items are included
     assert len(data["items"]) == 1
     assert data["items"][0]["description"] == "Test Service"
     assert Decimal(str(data["items"][0]["quantity"])) == Decimal("2")
     assert Decimal(str(data["items"][0]["unit_price"])) == Decimal("50.00")
-    
+
     # Verify client_name is included (from JOIN)
     assert data["client_name"] == "Test Client"
 
@@ -152,28 +140,28 @@ def test_list_quotes(authenticated_client, session: Session):
         quote_number="Q-USER-1",
         subtotal=Decimal("100"),
         total=Decimal("120"),
-        status=QuoteStatus.DRAFT
+        status=QuoteStatus.DRAFT,
     )
     session.add(quote1)
-    
+
     # Create another user and quote
     other_user = User(id="other-user", email="other@test.com", name="Other")
     session.add(other_user)
-    
+
     other_quote = Quote(
         user_id=other_user.id,
-        client_id=db_client.id, # Technically ID constraints might fail strictly but here we just check visibility
+        client_id=db_client.id,  # Technically ID constraints might fail strictly but here we just check visibility
         quote_number="Q-OTHER-1",
         subtotal=Decimal("100"),
-        total=Decimal("120")
+        total=Decimal("120"),
     )
     session.add(other_quote)
     session.commit()
-    
+
     response = client.get("/api/quotes")
     assert response.status_code == 200
     data = response.json()
-    
+
     assert data["total"] == 1
     assert len(data["quotes"]) == 1
     assert data["quotes"][0]["quote_number"] == "Q-USER-1"
@@ -182,20 +170,15 @@ def test_list_quotes(authenticated_client, session: Session):
 def test_update_quote_status(authenticated_client, session: Session):
     """Test updating quote status."""
     client, user, db_client = authenticated_client
-    
+
     quote = Quote(
-        user_id=user.id,
-        client_id=db_client.id,
-        quote_number="Q-UPDATE",
-        status=QuoteStatus.DRAFT
+        user_id=user.id, client_id=db_client.id, quote_number="Q-UPDATE", status=QuoteStatus.DRAFT
     )
     session.add(quote)
     session.commit()
-    
-    response = client.put(f"/api/quotes/{quote.id}", json={
-        "status": "Sent"
-    })
-    
+
+    response = client.put(f"/api/quotes/{quote.id}", json={"status": "Sent"})
+
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "Sent"
@@ -204,34 +187,30 @@ def test_update_quote_status(authenticated_client, session: Session):
 def test_access_other_user_quote(authenticated_client, session: Session):
     """Test accessing another user's quote returns 404."""
     client, user, db_client = authenticated_client
-    
+
     other_user = User(id="other-user", email="other@test.com", name="Other")
     session.add(other_user)
-    
+
     other_quote = Quote(
         id="quote-other-id",
         user_id=other_user.id,
         client_id=db_client.id,
         quote_number="Q-OTHER-ACCESS",
-        status=QuoteStatus.DRAFT
+        status=QuoteStatus.DRAFT,
     )
     session.add(other_quote)
     session.commit()
-    
+
     response = client.get(f"/api/quotes/{other_quote.id}")
     assert response.status_code == 404
+
 
 def test_search_quotes(authenticated_client, session: Session):
     """Test searching quotes by client name and quote number."""
     client, user, db_client = authenticated_client
 
     # Create another client
-    client2 = Client(
-        id="client-2",
-        user_id=user.id,
-        name="Dupont SA",
-        email="dupont@test.com"
-    )
+    client2 = Client(id="client-2", user_id=user.id, name="Dupont SA", email="dupont@test.com")
     session.add(client2)
 
     # Create quotes
@@ -242,7 +221,7 @@ def test_search_quotes(authenticated_client, session: Session):
         quote_number="Q-001",
         status=QuoteStatus.DRAFT,
         subtotal=Decimal("100"),
-        total=Decimal("120")
+        total=Decimal("120"),
     )
     session.add(q1)
 
@@ -253,7 +232,7 @@ def test_search_quotes(authenticated_client, session: Session):
         quote_number="Q-SEARCH-ME",
         status=QuoteStatus.DRAFT,
         subtotal=Decimal("100"),
-        total=Decimal("120")
+        total=Decimal("120"),
     )
     session.add(q2)
 
@@ -264,7 +243,7 @@ def test_search_quotes(authenticated_client, session: Session):
         quote_number="Q-OTHER",
         status=QuoteStatus.DRAFT,
         subtotal=Decimal("100"),
-        total=Decimal("120")
+        total=Decimal("120"),
     )
     session.add(q3)
     session.commit()
@@ -317,17 +296,20 @@ def test_update_quote_items_with_id(authenticated_client, session: Session):
     session.add(item)
     session.commit()
 
-    response = client.put(f"/api/quotes/{quote.id}", json={
-        "items": [
-            {
-                "id": "item-existing",
-                "description": "Updated Service",
-                "quantity": 3,
-                "unit_price": "150.00",
-                "order": 0,
-            }
-        ]
-    })
+    response = client.put(
+        f"/api/quotes/{quote.id}",
+        json={
+            "items": [
+                {
+                    "id": "item-existing",
+                    "description": "Updated Service",
+                    "quantity": 3,
+                    "unit_price": "150.00",
+                    "order": 0,
+                }
+            ]
+        },
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -366,16 +348,19 @@ def test_update_quote_items_without_id(authenticated_client, session: Session):
     session.add(old_item)
     session.commit()
 
-    response = client.put(f"/api/quotes/{quote.id}", json={
-        "items": [
-            {
-                "description": "Brand New Service",
-                "quantity": 1,
-                "unit_price": "200.00",
-                "order": 0,
-            }
-        ]
-    })
+    response = client.put(
+        f"/api/quotes/{quote.id}",
+        json={
+            "items": [
+                {
+                    "description": "Brand New Service",
+                    "quantity": 1,
+                    "unit_price": "200.00",
+                    "order": 0,
+                }
+            ]
+        },
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -418,17 +403,20 @@ def test_update_quote_item_zero_unit_price(authenticated_client, session: Sessio
     session.commit()
 
     # Update unit_price to 0
-    response = client.put(f"/api/quotes/{quote.id}", json={
-        "items": [
-            {
-                "id": "item-zero-price",
-                "description": "Free Service",
-                "quantity": 1,
-                "unit_price": "0.00",
-                "order": 0,
-            }
-        ]
-    })
+    response = client.put(
+        f"/api/quotes/{quote.id}",
+        json={
+            "items": [
+                {
+                    "id": "item-zero-price",
+                    "description": "Free Service",
+                    "quantity": 1,
+                    "unit_price": "0.00",
+                    "order": 0,
+                }
+            ]
+        },
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -467,17 +455,20 @@ def test_update_quote_recalculates_totals(authenticated_client, session: Session
     session.add(item)
     session.commit()
 
-    response = client.put(f"/api/quotes/{quote.id}", json={
-        "items": [
-            {
-                "id": "item-recalc",
-                "description": "Service",
-                "quantity": 5,
-                "unit_price": "200.00",
-                "order": 0,
-            }
-        ]
-    })
+    response = client.put(
+        f"/api/quotes/{quote.id}",
+        json={
+            "items": [
+                {
+                    "id": "item-recalc",
+                    "description": "Service",
+                    "quantity": 5,
+                    "unit_price": "200.00",
+                    "order": 0,
+                }
+            ]
+        },
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -501,9 +492,7 @@ def test_update_paid_quote_forbidden(authenticated_client, session: Session):
     session.add(quote)
     session.commit()
 
-    response = client.put(f"/api/quotes/{quote.id}", json={
-        "notes": "Try to modify"
-    })
+    response = client.put(f"/api/quotes/{quote.id}", json={"notes": "Try to modify"})
 
     assert response.status_code == 403
 
@@ -523,10 +512,13 @@ def test_update_quote_notes_and_payment_terms(authenticated_client, session: Ses
     session.commit()
 
     # Update with notes and payment_terms
-    response = client.put(f"/api/quotes/{quote.id}", json={
-        "notes": "Merci pour votre confiance",
-        "payment_terms": "Paiement à 30 jours",
-    })
+    response = client.put(
+        f"/api/quotes/{quote.id}",
+        json={
+            "notes": "Merci pour votre confiance",
+            "payment_terms": "Paiement à 30 jours",
+        },
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -534,9 +526,12 @@ def test_update_quote_notes_and_payment_terms(authenticated_client, session: Ses
     assert data["payment_terms"] == "Paiement à 30 jours"
 
     # Update notes to empty string (should clear them)
-    response = client.put(f"/api/quotes/{quote.id}", json={
-        "notes": "",
-    })
+    response = client.put(
+        f"/api/quotes/{quote.id}",
+        json={
+            "notes": "",
+        },
+    )
     assert response.status_code == 200
     data = response.json()
     assert data["notes"] == ""
@@ -547,33 +542,33 @@ def test_update_quote_notes_and_payment_terms(authenticated_client, session: Ses
 def test_client_name_propagation(authenticated_client, session: Session):
     """Test that updating a client's name is reflected in quote responses."""
     client, user, db_client = authenticated_client
-    
+
     # Create a quote linked to the client
     quote = Quote(
         id="quote-name-prop",
         user_id=user.id,
         client_id=db_client.id,
         quote_number="Q-NAME-PROP",
-        status=QuoteStatus.DRAFT
+        status=QuoteStatus.DRAFT,
     )
     session.add(quote)
     session.commit()
-    
+
     # Verify initial client_name
     response = client.get(f"/api/quotes/{quote.id}")
     assert response.status_code == 200
     assert response.json()["client_name"] == "Test Client"
-    
+
     # Update the client's name directly in DB
     db_client.name = "Updated Client Name"
     session.add(db_client)
     session.commit()
-    
+
     # Verify get_quote returns updated name
     response = client.get(f"/api/quotes/{quote.id}")
     assert response.status_code == 200
     assert response.json()["client_name"] == "Updated Client Name"
-    
+
     # Verify list_quotes also returns updated name
     response = client.get("/api/quotes")
     assert response.status_code == 200

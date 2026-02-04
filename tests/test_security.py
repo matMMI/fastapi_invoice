@@ -4,20 +4,21 @@ Tests for: CSV injection, XML/HTML escaping, SSRF, rate limiting,
 Content-Disposition sanitization, and auth edge cases.
 """
 
-import pytest
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from unittest.mock import patch
+
+import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
-from decimal import Decimal
-from datetime import datetime, timedelta, timezone
 
-from models.user import User
-from models.client import Client
-from models.quote import Quote, QuoteItem
-from models.settings import Settings
-from models.auth import Session as AuthSession
-from models.enums import QuoteStatus, TaxStatus, Currency
 from core.rate_limit import limiter
+from models.auth import Session as AuthSession
+from models.client import Client
+from models.enums import Currency, QuoteStatus, TaxStatus
+from models.quote import Quote
+from models.settings import Settings
+from models.user import User
 
 
 @pytest.fixture
@@ -31,15 +32,12 @@ def authenticated_client(client: TestClient, session: Session):
         siret="12345678901234",
         address="10 Rue Secure",
         tax_status=TaxStatus.ASSUJETTI,
-        email_verified=False
+        email_verified=False,
     )
     session.add(user)
 
     db_client = Client(
-        id="test-client-security",
-        user_id=user.id,
-        name="Secure Client",
-        email="client@secure.com"
+        id="test-client-security", user_id=user.id, name="Secure Client", email="client@secure.com"
     )
     session.add(db_client)
 
@@ -48,7 +46,7 @@ def authenticated_client(client: TestClient, session: Session):
         company_name="Secure SAS",
         company_email="secure@example.com",
         default_currency="EUR",
-        default_tax_rate=20.0
+        default_tax_rate=20.0,
     )
     session.add(settings)
 
@@ -58,7 +56,7 @@ def authenticated_client(client: TestClient, session: Session):
         token="test-token-security",
         expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
         ip_address="127.0.0.1",
-        user_agent="test"
+        user_agent="test",
     )
     session.add(auth_session)
     session.commit()
@@ -71,16 +69,14 @@ def authenticated_client(client: TestClient, session: Session):
 # CSV Injection Prevention
 # ────────────────────────────────────────────────
 
+
 def test_csv_export_injection_prevention(authenticated_client, session: Session):
     """Test that CSV export escapes dangerous formula characters."""
     client, user, db_client = authenticated_client
 
     # Create a client with malicious name
     evil_client = Client(
-        id="evil-client",
-        user_id=user.id,
-        name="=CMD('calc')",
-        email="evil@test.com"
+        id="evil-client", user_id=user.id, name="=CMD('calc')", email="evil@test.com"
     )
     session.add(evil_client)
 
@@ -98,7 +94,7 @@ def test_csv_export_injection_prevention(authenticated_client, session: Session)
         tax_amount=Decimal("20.00"),
         total=Decimal("120.00"),
         is_paid=True,
-        payment_date=datetime.now(timezone.utc)
+        payment_date=datetime.now(timezone.utc),
     )
     session.add(quote)
     session.commit()
@@ -129,7 +125,7 @@ def test_csv_export_safe_values_untouched(authenticated_client, session: Session
         tax_amount=Decimal("20.00"),
         total=Decimal("120.00"),
         is_paid=True,
-        payment_date=datetime.now(timezone.utc)
+        payment_date=datetime.now(timezone.utc),
     )
     session.add(quote)
     session.commit()
@@ -145,6 +141,7 @@ def test_csv_export_safe_values_untouched(authenticated_client, session: Session
 # ────────────────────────────────────────────────
 # XML/HTML Escaping in PDF (_esc function)
 # ────────────────────────────────────────────────
+
 
 def test_esc_function_escapes_html():
     """Test that _esc properly escapes HTML/XML special characters."""
@@ -174,6 +171,7 @@ def test_esc_function_handles_numbers():
 # ────────────────────────────────────────────────
 # SSRF Protection (_is_safe_url, _is_private_ip)
 # ────────────────────────────────────────────────
+
 
 def test_is_private_ip():
     """Test private IP detection covers all RFC ranges."""
@@ -219,7 +217,7 @@ def test_is_safe_url_allows_public():
 
     # Mock DNS resolution to return a public IP
     with patch("socket.getaddrinfo") as mock_dns:
-        mock_dns.return_value = [(2, 1, 6, '', ('93.184.216.34', 0))]
+        mock_dns.return_value = [(2, 1, 6, "", ("93.184.216.34", 0))]
         assert _is_safe_url("https://example.com/logo.png") is True
 
 
@@ -229,14 +227,15 @@ def test_is_safe_url_dns_rebinding():
 
     # Simulate a DNS rebinding: hostname looks safe but resolves to 127.0.0.1
     with patch("socket.getaddrinfo") as mock_dns:
-        mock_dns.return_value = [(2, 1, 6, '', ('127.0.0.1', 0))]
+        mock_dns.return_value = [(2, 1, 6, "", ("127.0.0.1", 0))]
         assert _is_safe_url("https://malicious-dns.com/logo.png") is False
 
 
 def test_is_safe_url_dns_failure():
     """Test that DNS resolution failure blocks the URL."""
-    from services.pdf_generator import _is_safe_url
     import socket
+
+    from services.pdf_generator import _is_safe_url
 
     with patch("socket.getaddrinfo", side_effect=socket.gaierror):
         assert _is_safe_url("https://nonexistent.invalid/logo.png") is False
@@ -246,11 +245,13 @@ def test_is_safe_url_dns_failure():
 # Rate Limiting
 # ────────────────────────────────────────────────
 
+
 def test_rate_limiting_enabled_by_default():
     """Test that rate limiter is enabled by default (before test fixture disables it)."""
     # The conftest fixture sets limiter.enabled = False for tests.
     # Here we verify the limiter object exists and has the expected behavior.
     from core.rate_limit import limiter as app_limiter
+
     # Just verify it's the right type and has the enabled attribute
     assert hasattr(app_limiter, "enabled")
 
@@ -264,9 +265,12 @@ def test_rate_limiting_settings_reset(client: TestClient, session: Session):
     user = User(id="rate-limit-user", email="rate@test.com", name="Rate User", email_verified=False)
     session.add(user)
     auth_session = AuthSession(
-        id="rate-limit-session", user_id=user.id, token="rate-limit-token",
+        id="rate-limit-session",
+        user_id=user.id,
+        token="rate-limit-token",
         expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
-        ip_address="127.0.0.1", user_agent="test"
+        ip_address="127.0.0.1",
+        user_agent="test",
     )
     session.add(auth_session)
     session.commit()
@@ -290,12 +294,17 @@ def test_rate_limiting_settings_reset(client: TestClient, session: Session):
 
 def test_rate_limiting_clients_create(client: TestClient, session: Session):
     """Test rate limiting on client creation (30/minute)."""
-    user = User(id="rate-limit-client-user", email="ratecl@test.com", name="Rate User", email_verified=False)
+    user = User(
+        id="rate-limit-client-user", email="ratecl@test.com", name="Rate User", email_verified=False
+    )
     session.add(user)
     auth_session = AuthSession(
-        id="rate-limit-cl-session", user_id=user.id, token="rate-cl-token",
+        id="rate-limit-cl-session",
+        user_id=user.id,
+        token="rate-cl-token",
         expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
-        ip_address="127.0.0.1", user_agent="test"
+        ip_address="127.0.0.1",
+        user_agent="test",
     )
     session.add(auth_session)
     session.commit()
@@ -306,10 +315,9 @@ def test_rate_limiting_clients_create(client: TestClient, session: Session):
     try:
         rate_limited = False
         for i in range(35):
-            response = client.post("/api/clients", json={
-                "name": f"Client {i}",
-                "email": f"c{i}@rate.com"
-            })
+            response = client.post(
+                "/api/clients", json={"name": f"Client {i}", "email": f"c{i}@rate.com"}
+            )
             if response.status_code == 429:
                 rate_limited = True
                 break
@@ -322,6 +330,7 @@ def test_rate_limiting_clients_create(client: TestClient, session: Session):
 # ────────────────────────────────────────────────
 # Authentication Edge Cases
 # ────────────────────────────────────────────────
+
 
 def test_auth_no_token(client: TestClient):
     """Test that requests without auth token return 401."""
@@ -346,7 +355,7 @@ def test_auth_expired_session(client: TestClient, session: Session):
         token="expired-token",
         expires_at=datetime.now(timezone.utc) - timedelta(hours=1),  # Expired
         ip_address="127.0.0.1",
-        user_agent="test"
+        user_agent="test",
     )
     session.add(auth_session)
     session.commit()
@@ -377,12 +386,15 @@ def test_auth_required_on_all_protected_endpoints(client: TestClient):
 
     for method, path in endpoints:
         response = getattr(client, method.lower())(path)
-        assert response.status_code == 401, f"Expected 401 for {method} {path}, got {response.status_code}"
+        assert response.status_code == 401, (
+            f"Expected 401 for {method} {path}, got {response.status_code}"
+        )
 
 
 # ────────────────────────────────────────────────
 # Quote Inalterability (Paid Quotes)
 # ────────────────────────────────────────────────
+
 
 def test_paid_quote_cannot_update_status(authenticated_client, session: Session):
     """Test that paid quotes cannot have their status changed."""
@@ -395,7 +407,7 @@ def test_paid_quote_cannot_update_status(authenticated_client, session: Session)
         quote_number="Q-PAID-STATUS",
         status=QuoteStatus.ACCEPTED,
         is_paid=True,
-        tax_status=TaxStatus.ASSUJETTI
+        tax_status=TaxStatus.ASSUJETTI,
     )
     session.add(quote)
     session.commit()
@@ -415,14 +427,15 @@ def test_paid_quote_cannot_update_items(authenticated_client, session: Session):
         quote_number="Q-PAID-ITEMS",
         status=QuoteStatus.ACCEPTED,
         is_paid=True,
-        tax_status=TaxStatus.ASSUJETTI
+        tax_status=TaxStatus.ASSUJETTI,
     )
     session.add(quote)
     session.commit()
 
-    response = client.put(f"/api/quotes/{quote.id}", json={
-        "items": [{"description": "New Item", "quantity": 1, "unit_price": "100.00"}]
-    })
+    response = client.put(
+        f"/api/quotes/{quote.id}",
+        json={"items": [{"description": "New Item", "quantity": 1, "unit_price": "100.00"}]},
+    )
     assert response.status_code == 403
 
 
@@ -431,10 +444,7 @@ def test_paid_quote_cannot_reassign_client(authenticated_client, session: Sessio
     client, user, db_client = authenticated_client
 
     other_client = Client(
-        id="other-client-paid",
-        user_id=user.id,
-        name="Other Client",
-        email="other@paid.com"
+        id="other-client-paid", user_id=user.id, name="Other Client", email="other@paid.com"
     )
     session.add(other_client)
 
@@ -445,20 +455,19 @@ def test_paid_quote_cannot_reassign_client(authenticated_client, session: Sessio
         quote_number="Q-PAID-REASSIGN",
         status=QuoteStatus.ACCEPTED,
         is_paid=True,
-        tax_status=TaxStatus.ASSUJETTI
+        tax_status=TaxStatus.ASSUJETTI,
     )
     session.add(quote)
     session.commit()
 
-    response = client.put(f"/api/quotes/{quote.id}", json={
-        "client_id": "other-client-paid"
-    })
+    response = client.put(f"/api/quotes/{quote.id}", json={"client_id": "other-client-paid"})
     assert response.status_code == 403
 
 
 # ────────────────────────────────────────────────
 # Tax Logic Enforcement
 # ────────────────────────────────────────────────
+
 
 def test_franchise_user_tax_rate_forced_to_zero(client: TestClient, session: Session):
     """Test that FRANCHISE users always have tax_rate=0 regardless of input."""
@@ -467,7 +476,7 @@ def test_franchise_user_tax_rate_forced_to_zero(client: TestClient, session: Ses
         email="franchise@test.com",
         name="Franchise User",
         tax_status=TaxStatus.FRANCHISE,
-        email_verified=False
+        email_verified=False,
     )
     session.add(user)
 
@@ -475,20 +484,26 @@ def test_franchise_user_tax_rate_forced_to_zero(client: TestClient, session: Ses
     session.add(db_client)
 
     auth_session = AuthSession(
-        id="franchise-session", user_id=user.id, token="franchise-token",
+        id="franchise-session",
+        user_id=user.id,
+        token="franchise-token",
         expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
-        ip_address="127.0.0.1", user_agent="test"
+        ip_address="127.0.0.1",
+        user_agent="test",
     )
     session.add(auth_session)
     session.commit()
 
     client.headers = {"Authorization": "Bearer franchise-token"}
 
-    response = client.post("/api/quotes", json={
-        "client_id": "franchise-client",
-        "tax_rate": "20.00",  # User tries to set 20% but they're FRANCHISE
-        "items": [{"description": "Service", "quantity": 1, "unit_price": "100.00"}]
-    })
+    response = client.post(
+        "/api/quotes",
+        json={
+            "client_id": "franchise-client",
+            "tax_rate": "20.00",  # User tries to set 20% but they're FRANCHISE
+            "items": [{"description": "Service", "quantity": 1, "unit_price": "100.00"}],
+        },
+    )
     assert response.status_code == 201
     data = response.json()
     assert Decimal(str(data["tax_rate"])) == Decimal("0.00")
@@ -500,11 +515,14 @@ def test_assujetti_user_tax_rate_applied(authenticated_client):
     """Test that ASSUJETTI users have their tax_rate correctly applied."""
     client, user, db_client = authenticated_client
 
-    response = client.post("/api/quotes", json={
-        "client_id": db_client.id,
-        "tax_rate": "20.00",
-        "items": [{"description": "Service", "quantity": 1, "unit_price": "100.00"}]
-    })
+    response = client.post(
+        "/api/quotes",
+        json={
+            "client_id": db_client.id,
+            "tax_rate": "20.00",
+            "items": [{"description": "Service", "quantity": 1, "unit_price": "100.00"}],
+        },
+    )
     assert response.status_code == 201
     data = response.json()
     assert Decimal(str(data["tax_rate"])) == Decimal("20.00")

@@ -60,7 +60,31 @@ else
     echo "⚠️  Pas de remote 'origin'. Changements locaux uniquement."
 fi
 
-# 3. VERCEL DEPLOYMENT
+# 3. MIGRATIONS EN PRODUCTION
+echo ""
+echo "🔄 Migrations de la base de données"
+echo "===================================="
+
+TEMP_ENV=$(mktemp)
+vercel env pull "$TEMP_ENV" --environment production --yes 2>/dev/null
+
+PROD_DB_URL=$(grep "^DATABASE_URL=" "$TEMP_ENV" | sed 's/^DATABASE_URL=//' | sed 's/^"//' | sed 's/"$//')
+rm -f "$TEMP_ENV"
+
+if [[ -n "$PROD_DB_URL" ]]; then
+    echo "🔄 Exécution des migrations en production..."
+    DATABASE_URL="$PROD_DB_URL" ./venv/bin/python run_migrations.py
+    if [[ $? -ne 0 ]]; then
+        echo "❌ Migrations échouées! Déploiement annulé."
+        exit 1
+    fi
+    echo "✅ Migrations exécutées avec succès!"
+else
+    echo "⚠️  DATABASE_URL production non trouvée via Vercel CLI."
+    echo "   Migrations non exécutées. Vérifiez vos variables d'environnement Vercel."
+fi
+
+# 4. VERCEL DEPLOYMENT
 echo ""
 echo "🎯 Déploiement Vercel"
 echo "===================="
@@ -68,16 +92,8 @@ echo "===================="
 if ! command -v vercel &> /dev/null; then
     echo "⚠️  Vercel CLI non installé (npm i -g vercel)"
 else
-    SHOULD_DEPLOY=false
-    
-    SHOULD_DEPLOY=true
-    
-    if [[ "$SHOULD_DEPLOY" == "true" ]]; then
-        echo "🚀 Déploiement en production..."
-        vercel --prod
-    else
-        echo "ℹ️  Déploiement skippé (sera géré par Git Push si connecté)."
-    fi
+    echo "🚀 Déploiement en production..."
+    vercel --prod
 fi
 
 echo ""

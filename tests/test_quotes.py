@@ -24,13 +24,11 @@ def authenticated_client(client: TestClient, session: Session):
     )
     session.add(user)
 
-    # Create client for quotes
     db_client = Client(
         id="test-client-id", user_id=user.id, name="Test Client", email="client@test.com"
     )
     session.add(db_client)
 
-    # Create session
     auth_session = AuthSession(
         id="test-session-id",
         user_id=user.id,
@@ -42,7 +40,6 @@ def authenticated_client(client: TestClient, session: Session):
     session.add(auth_session)
     session.commit()
 
-    # Add auth header to client
     client.headers = {"Authorization": "Bearer test-token"}
     return client, user, db_client
 
@@ -78,7 +75,6 @@ def test_get_quote(authenticated_client, session: Session):
     """Test fetching a single quote by ID returns all expected fields."""
     client, user, db_client = authenticated_client
 
-    # Create a quote with items
     quote = Quote(
         id="test-quote-get",
         user_id=user.id,
@@ -109,7 +105,6 @@ def test_get_quote(authenticated_client, session: Session):
     assert response.status_code == 200
     data = response.json()
 
-    # Verify all essential fields
     assert data["id"] == "test-quote-get"
     assert data["quote_number"] == "Q-GET-001"
     assert data["client_id"] == db_client.id
@@ -213,8 +208,6 @@ def test_search_quotes(authenticated_client, session: Session):
     client2 = Client(id="client-2", user_id=user.id, name="Dupont SA", email="dupont@test.com")
     session.add(client2)
 
-    # Create quotes
-    # 1. Matches client name "Test Client" (from fixture)
     q1 = Quote(
         user_id=user.id,
         client_id=db_client.id,
@@ -225,7 +218,6 @@ def test_search_quotes(authenticated_client, session: Session):
     )
     session.add(q1)
 
-    # 2. Matches quote number "Q-SEARCH"
     q2 = Quote(
         user_id=user.id,
         client_id=client2.id,
@@ -236,7 +228,6 @@ def test_search_quotes(authenticated_client, session: Session):
     )
     session.add(q2)
 
-    # 3. No match
     q3 = Quote(
         user_id=user.id,
         client_id=client2.id,
@@ -248,21 +239,18 @@ def test_search_quotes(authenticated_client, session: Session):
     session.add(q3)
     session.commit()
 
-    # Search by part of Client Name "Test"
     res = client.get("/api/quotes?search=Test")
     assert res.status_code == 200
     data = res.json()
     assert len(data["quotes"]) == 1
     assert data["quotes"][0]["quote_number"] == "Q-001"
 
-    # Search by part of Quote Number "SEARCH"
     res = client.get("/api/quotes?search=SEARCH")
     assert res.status_code == 200
     data = res.json()
     assert len(data["quotes"]) == 1
     assert data["quotes"][0]["quote_number"] == "Q-SEARCH-ME"
 
-    # Search with no results
     res = client.get("/api/quotes?search=XYZ")
     assert res.status_code == 200
     assert len(res.json()["quotes"]) == 0
@@ -574,9 +562,6 @@ def test_client_name_propagation(authenticated_client, session: Session):
     assert response.status_code == 200
     quotes = response.json()["quotes"]
     assert any(q["client_name"] == "Updated Client Name" for q in quotes)
-
-
-# ============ DELETE QUOTE TESTS ============
 
 
 def test_delete_quote_success(authenticated_client, session: Session):

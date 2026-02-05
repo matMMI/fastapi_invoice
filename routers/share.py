@@ -15,17 +15,13 @@ from sqlmodel import Session, select
 from core.rate_limit import limiter
 from core.security import get_current_user
 from db.session import get_session
-from models.client import Client
 from models.enums import QuoteStatus
-from models.quote import Quote, QuoteItem
+from models.quote import Quote
 from models.user import User
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["share"])
-
-
-# ============ Schemas ============
 
 
 class ShareResponse(BaseModel):
@@ -96,9 +92,6 @@ class SignResponse(BaseModel):
     signed_at: datetime
 
 
-# ============ Authenticated Endpoints ============
-
-
 @router.post("/quotes/{quote_id}/share", response_model=ShareResponse)
 async def generate_share_link(
     quote_id: str,
@@ -113,7 +106,6 @@ async def generate_share_link(
     if not quote:
         raise HTTPException(status_code=404, detail="Devis non trouvé")
 
-    # Generate unique token
     token = str(uuid4())
     expires_at = datetime.now(timezone.utc) + timedelta(days=30)
 
@@ -131,9 +123,6 @@ async def generate_share_link(
     share_url = f"/sign/{token}"
 
     return ShareResponse(share_url=share_url, expires_at=expires_at)
-
-
-# ============ Public Endpoints (No Auth) ============
 
 
 @router.get("/public/quotes/{token}", response_model=PublicQuoteResponse)
@@ -245,12 +234,9 @@ async def sign_quote(
 async def get_public_quote_pdf(request: Request, token: str, db: Session = Depends(get_session)):
     """Download quote PDF (public, no auth required)."""
     from fastapi.responses import Response
-    from sqlalchemy.orm import selectinload
 
     from models.settings import Settings
     from services.pdf_generator import generate_quote_pdf
-
-    # Fetch quote with relations (needed for PDF)
     statement = (
         select(Quote)
         .where(Quote.share_token == token)
@@ -279,9 +265,6 @@ async def get_public_quote_pdf(request: Request, token: str, db: Session = Depen
             default_currency="EUR",
             default_tax_rate=20.0,
         )
-
-    # Get the user (owner of the quote) for PDF generation
-    from models.user import User
 
     user = db.get(User, quote.user_id)
     if not user:

@@ -24,10 +24,9 @@ def calculate_quote_totals(quote: Quote, items: list[QuoteItem]):
     """Calculate subtotal, tax and total for a quote."""
     subtotal = sum(item.total for item in items)
 
-    # Discount logic could be complex, simple version here
     discount_amount = Decimal("0.00")
     if quote.discount_value:
-        # TODO: handle Percentage vs Fixed
+        # TODO: handle Percentage vs Fixed discount types
         discount_amount = quote.discount_value
 
     taxable_amount = max(subtotal - discount_amount, Decimal("0.00"))
@@ -74,7 +73,6 @@ async def create_quote(
         tax_status=current_user.tax_status,  # Snapshot
     )
 
-    # Create Items and Calculate
     db_items = []
     for item_in in quote_data.items:
         item_total = item_in.quantity * item_in.unit_price
@@ -154,7 +152,6 @@ async def get_quote(
     db: Session = Depends(get_session),
 ):
     """Get a specific quote with client name."""
-    # Query with JOIN to get client_name + eager load items
     statement = (
         select(Quote, Client.name)
         .join(Client, Quote.client_id == Client.id, isouter=True)
@@ -224,7 +221,6 @@ async def update_quote(
         else:
             quote.tax_rate = quote_data.tax_rate
 
-    # Handle Items
     if quote_data.items is not None:
         existing_items = {item.id: item for item in quote.items}
         new_items_list = []
@@ -340,7 +336,7 @@ async def export_revenue(
                 f"{q.subtotal:.2f}",
                 f"{q.tax_amount:.2f}",
                 f"{q.total:.2f}",
-                "Virement",  # Placeholder, could be a field later
+                "Virement",
             ]
         )
 

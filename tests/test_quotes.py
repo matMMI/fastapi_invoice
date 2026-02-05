@@ -574,3 +574,102 @@ def test_client_name_propagation(authenticated_client, session: Session):
     assert response.status_code == 200
     quotes = response.json()["quotes"]
     assert any(q["client_name"] == "Updated Client Name" for q in quotes)
+
+
+# ============ DELETE QUOTE TESTS ============
+
+
+def test_delete_quote_success(authenticated_client, session: Session):
+    """Test successful deletion of a quote."""
+    client, user, db_client = authenticated_client
+
+    quote = Quote(
+        id="quote-to-delete",
+        user_id=user.id,
+        client_id=db_client.id,
+        quote_number="Q-DELETE",
+        status=QuoteStatus.DRAFT,
+    )
+    session.add(quote)
+
+    item = QuoteItem(
+        id="item-to-delete",
+        quote_id=quote.id,
+        description="Service",
+        quantity=Decimal("1"),
+        unit_price=Decimal("100.00"),
+        total=Decimal("100.00"),
+        order=0,
+    )
+    session.add(item)
+    session.commit()
+
+    response = client.delete(f"/api/quotes/{quote.id}")
+    assert response.status_code == 204
+
+    # Verify quote is deleted
+    session.expire_all()
+    deleted_quote = session.get(Quote, "quote-to-delete")
+    assert deleted_quote is None
+
+    # Verify items are cascade deleted
+    deleted_item = session.get(QuoteItem, "item-to-delete")
+    assert deleted_item is None
+
+
+def test_delete_quote_not_found(authenticated_client, session: Session):
+    """Test deleting a non-existent quote returns 404."""
+    client, user, db_client = authenticated_client
+
+    response = client.delete("/api/quotes/non-existent-id")
+    assert response.status_code == 404
+
+
+def test_delete_other_user_quote_forbidden(authenticated_client, session: Session):
+    """Test deleting another user's quote returns 404 (not 403 to avoid info leak)."""
+    client, user, db_client = authenticated_client
+
+    other_user = User(id="other-user-delete", email="other-delete@test.com", name="Other")
+    session.add(other_user)
+
+    other_quote = Quote(
+        id="quote-other-delete",
+        user_id=other_user.id,
+        client_id=db_client.id,
+        quote_number="Q-OTHER-DELETE",
+        status=QuoteStatus.DRAFT,
+    )
+    session.add(other_quote)
+    session.commit()
+
+    response = client.delete(f"/api/quotes/{other_quote.id}")
+    assert response.status_code == 404
+
+    # Verify quote still exists
+    session.expire_all()
+    quote = session.get(Quote, "quote-other-delete")
+    assert quote is not None
+
+
+def test_delete_paid_quote_forbidden(authenticated_client, session: Session):
+    """Test that deleting a paid quote is forbidden (inalterability rule)."""
+    client, user, db_client = authenticated_client
+
+    quote = Quote(
+        id="quote-paid-delete",
+        user_id=user.id,
+        client_id=db_client.id,
+        quote_number="Q-PAID-DELETE",
+        status=QuoteStatus.ACCEPTED,
+        is_paid=True,
+    )
+    session.add(quote)
+    session.commit()
+
+    response = client.delete(f"/api/quotes/{quote.id}")
+    assert response.status_code == 403
+
+    # Verify quote still exists
+    session.expire_all()
+    quote = session.get(Quote, "quote-paid-delete")
+    assert quote is not None

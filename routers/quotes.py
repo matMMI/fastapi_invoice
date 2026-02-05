@@ -1,7 +1,6 @@
 """API routes for quote management."""
 
 import logging
-import re
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -19,11 +18,6 @@ from schemas.quote import QuoteCreate, QuoteListResponse, QuoteResponse, QuoteUp
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-
-def _sanitize_filename(name: str) -> str:
-    """Sanitize a string for safe use in Content-Disposition headers."""
-    return re.sub(r"[^\w\s\-.]", "", name).strip()
 
 
 def calculate_quote_totals(quote: Quote, items: list[QuoteItem]):
@@ -58,18 +52,14 @@ async def create_quote(
     if not client or client.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Client not found")
 
-    # Generate quote number if not provided
     quote_number = quote_data.quote_number
     if not quote_number:
         quote_number = f"Q-{int(datetime.now().timestamp() * 1000)}"
 
-    # Determine Tax Rate based on Status
-    # If FRANCHISE, force 0. If ASSUJETTI, use provided or default.
     effective_tax_rate = quote_data.tax_rate
     if current_user.tax_status == TaxStatus.FRANCHISE:
         effective_tax_rate = Decimal("0.00")
 
-    # Create Quote
     quote = Quote(
         user_id=current_user.id,
         client_id=quote_data.client_id,
@@ -146,9 +136,8 @@ async def list_quotes(
 
         quotes_with_client = []
         for quote, client_name in results:
-            # quote.model_dump() excludes relationships like 'items' by default
             quote_dict = quote.model_dump()
-            quote_dict["items"] = quote.items  # Explicitly include items
+            quote_dict["items"] = quote.items
             quote_dict["client_name"] = client_name
             quotes_with_client.append(quote_dict)
 
@@ -193,7 +182,6 @@ async def update_quote(
     db: Session = Depends(get_session),
 ):
     """Update a quote and its items."""
-    # Eager load items to avoid N+1 query
     statement = (
         select(Quote)
         .where(Quote.id == quote_id)
@@ -204,13 +192,11 @@ async def update_quote(
     if not quote:
         raise HTTPException(status_code=404, detail="Quote not found")
 
-    # Inalterability Check
     if quote.is_paid:
         raise HTTPException(
             status_code=403, detail="Cannot modify a paid invoice (Inalterability rule)."
         )
 
-    # Update header fields (verify client ownership on reassignment)
     if quote_data.client_id is not None:
         new_client = db.get(Client, quote_data.client_id)
         if not new_client or new_client.user_id != current_user.id:
@@ -227,18 +213,11 @@ async def update_quote(
     if quote_data.payment_terms is not None:
         quote.payment_terms = quote_data.payment_terms
 
-    # Update Payment Status (Allow setting is_paid via update)
-    # Note: QuoteUpdate schema needs to support is_paid if we want frontend to set it.
-    # Assuming QuoteUpdate has extra=ignore or we added it?
-    # Spec says "Quote Model: Add ... is_paid". Frontend "Bouton pour marquer comme Payé".
-    # I should check QuoteUpdate schema. If strict, I need to update it.
-    # For now, I'll update it if present in dict form or model.
     if hasattr(quote_data, "is_paid") and quote_data.is_paid is not None:
         quote.is_paid = quote_data.is_paid
         if quote.is_paid and not quote.payment_date:
             quote.payment_date = datetime.now(timezone.utc)
 
-    # Enforce Tax Rate Logic on Update too
     if quote_data.tax_rate is not None:
         if quote.tax_status == TaxStatus.FRANCHISE:
             quote.tax_rate = Decimal("0.00")
@@ -289,6 +268,27 @@ async def update_quote(
     return quote
 
 
+@router.delete("/quotes/{quote_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_quote(
+    quote_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_session),
+):
+    """Delete a quote and its items."""
+    quote = db.get(Quote, quote_id)
+    if not quote or quote.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Quote not found")
+
+    if quote.is_paid:
+        raise HTTPException(
+            status_code=403, detail="Cannot delete a paid invoice (Inalterability rule)."
+        )
+
+    db.delete(quote)
+    db.commit()
+    return None
+
+
 @router.get("/export/revenue")
 async def export_revenue(
     current_user: User = Depends(get_current_user), db: Session = Depends(get_session)
@@ -299,7 +299,6 @@ async def export_revenue(
 
     from fastapi.responses import StreamingResponse
 
-    # Query paid quotes with eager loading of client
     query = (
         select(Quote)
         .where(Quote.user_id == current_user.id)
@@ -309,11 +308,8 @@ async def export_revenue(
     )
     quotes = db.exec(query).all()
 
-    # Generate CSV
     output = io.StringIO()
     writer = csv.writer(output)
-
-    # Header
     writer.writerow(
         [
             "Date Encaissement",

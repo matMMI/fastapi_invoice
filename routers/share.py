@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
+from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
 
 from core.rate_limit import limiter
@@ -139,7 +140,13 @@ async def generate_share_link(
 @limiter.limit("10/minute")
 async def get_public_quote(request: Request, token: str, db: Session = Depends(get_session)):
     """Get quote details by share token (public, no auth required)."""
-    quote = db.exec(select(Quote).where(Quote.share_token == token)).first()
+    # Single query with eager loading - fixes N+1 problem
+    statement = (
+        select(Quote)
+        .where(Quote.share_token == token)
+        .options(selectinload(Quote.client), selectinload(Quote.items))
+    )
+    quote = db.scalar(statement)
 
     if not quote:
         raise HTTPException(status_code=404, detail="Devis non trouvé ou lien invalide")
@@ -152,15 +159,13 @@ async def get_public_quote(request: Request, token: str, db: Session = Depends(g
         if expires_at < datetime.now(timezone.utc):
             raise HTTPException(status_code=410, detail="Ce lien de partage a expiré")
 
-    # Get client info
-    client = db.exec(select(Client).where(Client.id == quote.client_id)).first()
+    # Client is already loaded via selectinload
+    client = quote.client
     if not client:
         raise HTTPException(status_code=404, detail="Client associé non trouvé")
 
-    # Get quote items
-    items = db.exec(
-        select(QuoteItem).where(QuoteItem.quote_id == quote.id).order_by(QuoteItem.order)
-    ).all()
+    # Items are already loaded and sorted by the relationship
+    items = sorted(quote.items, key=lambda x: x.order)
 
     return PublicQuoteResponse(
         quote_number=quote.quote_number,

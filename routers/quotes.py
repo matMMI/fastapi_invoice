@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.orm import selectinload
 from sqlmodel import Session, func, or_, select
 
 from core.security import get_current_user
@@ -135,7 +136,12 @@ async def list_quotes(
         total = db.exec(count_query).one()
 
         offset = (page - 1) * limit
-        statement = query.order_by(Quote.created_at.desc()).offset(offset).limit(limit)
+        statement = (
+            query.options(selectinload(Quote.items))
+            .order_by(Quote.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
         results = db.exec(statement).all()
 
         quotes_with_client = []
@@ -159,12 +165,13 @@ async def get_quote(
     db: Session = Depends(get_session),
 ):
     """Get a specific quote with client name."""
-    # Query with JOIN to get client_name
+    # Query with JOIN to get client_name + eager load items
     statement = (
         select(Quote, Client.name)
         .join(Client, Quote.client_id == Client.id, isouter=True)
         .where(Quote.id == quote_id)
         .where(Quote.user_id == current_user.id)
+        .options(selectinload(Quote.items))
     )
     result = db.exec(statement).first()
 
@@ -186,8 +193,15 @@ async def update_quote(
     db: Session = Depends(get_session),
 ):
     """Update a quote and its items."""
-    quote = db.get(Quote, quote_id)
-    if not quote or quote.user_id != current_user.id:
+    # Eager load items to avoid N+1 query
+    statement = (
+        select(Quote)
+        .where(Quote.id == quote_id)
+        .where(Quote.user_id == current_user.id)
+        .options(selectinload(Quote.items))
+    )
+    quote = db.exec(statement).first()
+    if not quote:
         raise HTTPException(status_code=404, detail="Quote not found")
 
     # Inalterability Check
@@ -285,11 +299,12 @@ async def export_revenue(
 
     from fastapi.responses import StreamingResponse
 
-    # Query paid quotes
+    # Query paid quotes with eager loading of client
     query = (
         select(Quote)
         .where(Quote.user_id == current_user.id)
         .where(Quote.is_paid)
+        .options(selectinload(Quote.client))
         .order_by(Quote.payment_date.desc())
     )
     quotes = db.exec(query).all()

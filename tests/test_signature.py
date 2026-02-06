@@ -4,6 +4,8 @@ import base64
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+from unittest.mock import patch
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
@@ -136,7 +138,7 @@ def test_sign_action(signature_setup, session: Session):
 
 
 def test_public_quote_pdf_valid_token(signature_setup, session: Session):
-    """Test downloading PDF with valid token - verifies import re works."""
+    """Test downloading PDF with valid token."""
     client, quote = signature_setup
 
     # Set token in DB
@@ -154,6 +156,51 @@ def test_public_quote_pdf_valid_token(signature_setup, session: Session):
     assert len(response.content) > 0
 
 
+@patch("services.pdf_generator.generate_quote_pdf", return_value=b"%PDF-1.4 fake")
+def test_pdf_accessible_after_signing(mock_pdf, signature_setup, session: Session):
+    """Regression test: PDF must remain accessible after a quote is signed.
+
+    Previously, sign_quote revoked the share_token (set to None), which made
+    the PDF endpoint return 404 because it searches by share_token.
+    """
+    client, quote = signature_setup
+
+    # Step 1: Set up a shareable quote
+    quote.share_token = "sign-then-pdf-token"
+    quote.share_token_expires_at = datetime.now(timezone.utc) + timedelta(days=30)
+    quote.status = QuoteStatus.SENT
+    session.add(quote)
+    session.commit()
+
+    client.headers = {}
+
+    # Step 2: Sign the quote
+    payload = {
+        "signer_name": "Marie Martin",
+        "signer_email": "marie@example.com",
+        "signature_data": VALID_SIGNATURE_DATA,
+    }
+    sign_response = client.post("/api/public/quotes/sign-then-pdf-token/sign", json=payload)
+    assert sign_response.status_code == 200
+
+    # Step 3: Refresh and verify token is still present
+    session.refresh(quote)
+    assert quote.signed_at is not None
+    assert quote.share_token == "sign-then-pdf-token"  # Token must NOT be revoked
+
+    # Step 4: PDF must still be accessible with the same token
+    pdf_response = client.get("/api/public/quotes/sign-then-pdf-token/pdf")
+    assert pdf_response.status_code == 200
+    assert "application/pdf" in pdf_response.headers.get("content-type", "")
+
+    # Step 5: Public quote view must also still work
+    view_response = client.get("/api/public/quotes/sign-then-pdf-token")
+    assert view_response.status_code == 200
+    data = view_response.json()
+    assert data["is_signed"] is True
+    assert data["signer_name"] == "Marie Martin"
+
+
 def test_public_quote_pdf_invalid_token(signature_setup, session: Session):
     """Test PDF download with invalid token returns 404."""
     client, quote = signature_setup
@@ -164,7 +211,7 @@ def test_public_quote_pdf_invalid_token(signature_setup, session: Session):
 
 
 def test_public_quote_pdf_filename_escaping(signature_setup, session: Session):
-    """Test that PDF filename is properly escaped (tests import re)."""
+    """Test that PDF filename is properly escaped."""
     client, quote = signature_setup
 
     # Create quote with special characters in number

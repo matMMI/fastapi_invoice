@@ -1,7 +1,3 @@
-"""
-Share and sign quotes - public endpoints for electronic signature.
-"""
-
 import base64
 import logging
 import re
@@ -61,13 +57,11 @@ class SignRequest(BaseModel):
     signer_name: str = Field(..., min_length=1, max_length=200)
     signer_email: str = Field(..., min_length=1, max_length=255)
     signer_function: str | None = Field(None, max_length=200)
-    signature_data: str = Field(..., max_length=500_000)  # ~375KB decoded max
+    signature_data: str = Field(..., max_length=500_000)
 
     @field_validator("signer_email")
     @classmethod
     def validate_email(cls, v: str) -> str:
-        import re
-
         if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", v):
             raise ValueError("Adresse email invalide")
         return v
@@ -120,7 +114,6 @@ async def generate_share_link(
     db.commit()
     db.refresh(quote)
 
-    # Build the share URL (frontend will be at /sign/[token])
     share_url = f"/sign/{token}"
 
     return ShareResponse(share_url=share_url, expires_at=expires_at)
@@ -130,7 +123,6 @@ async def generate_share_link(
 @limiter.limit("10/minute")
 async def get_public_quote(request: Request, token: str, db: Session = Depends(get_session)):
     """Get quote details by share token (public, no auth required)."""
-    # Single query with eager loading - fixes N+1 problem
     statement = (
         select(Quote)
         .where(Quote.share_token == token)
@@ -140,21 +132,15 @@ async def get_public_quote(request: Request, token: str, db: Session = Depends(g
 
     if not quote:
         raise HTTPException(status_code=404, detail="Devis non trouvé ou lien invalide")
-
-    # Allow permanent access to signed quotes, enforce expiration for unsigned
     if not quote.signed_at and quote.share_token_expires_at:
         expires_at = quote.share_token_expires_at
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
         if expires_at < datetime.now(timezone.utc):
             raise HTTPException(status_code=410, detail="Ce lien de partage a expiré")
-
-    # Client is already loaded via selectinload
     client = quote.client
     if not client:
         raise HTTPException(status_code=404, detail="Client associé non trouvé")
-
-    # Items are already loaded and sorted by the relationship
     items = sorted(quote.items, key=lambda x: x.order)
 
     return PublicQuoteResponse(
@@ -197,20 +183,16 @@ async def sign_quote(
     if not quote:
         raise HTTPException(status_code=404, detail="Devis non trouvé ou lien invalide")
 
-    # Check expiration
     if quote.share_token_expires_at:
         expires_at = quote.share_token_expires_at
-        # Ensure timezone-aware comparison
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
         if expires_at < datetime.now(timezone.utc):
             raise HTTPException(status_code=410, detail="Ce lien de partage a expiré")
 
-    # Check if already signed
     if quote.signed_at:
         raise HTTPException(status_code=400, detail="Ce devis a déjà été signé")
 
-    # Save signature (IP volontairement non capturee - respect vie privee)
     now = datetime.now(timezone.utc)
     quote.signed_at = now
     quote.signature_data = sign_data.signature_data
@@ -219,9 +201,6 @@ async def sign_quote(
     quote.signer_function = sign_data.signer_function
     quote.status = QuoteStatus.SIGNED
     quote.updated_at = now
-    # Revoke share token after signing (prevent permanent public access)
-    quote.share_token = None
-    quote.share_token_expires_at = None
 
     db.add(quote)
     db.commit()
@@ -249,7 +228,6 @@ async def get_public_quote_pdf(request: Request, token: str, db: Session = Depen
     if not quote:
         raise HTTPException(status_code=404, detail="Devis non trouvé ou lien invalide")
 
-    # Allow permanent access to signed quotes, enforce expiration for unsigned
     if not quote.signed_at and quote.share_token_expires_at:
         expires_at = quote.share_token_expires_at
         if expires_at.tzinfo is None:
@@ -257,10 +235,8 @@ async def get_public_quote_pdf(request: Request, token: str, db: Session = Depen
         if expires_at < datetime.now(timezone.utc):
             raise HTTPException(status_code=410, detail="Ce lien de partage a expiré")
 
-    # Get user settings for PDF customization
     settings = db.exec(select(Settings).where(Settings.user_id == quote.user_id)).first()
     if not settings:
-        # Fallback settings
         settings = Settings(
             user_id=quote.user_id,
             company_name="My Company",

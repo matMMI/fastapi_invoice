@@ -112,14 +112,13 @@ def test_double_signing_rejected(full_setup, session: Session):
     r1 = client.post("/api/public/quotes/double-sign-token/sign", json=payload)
     assert r1.status_code == 200
 
-    # Quote should now have share_token revoked
     session.refresh(quote)
-    assert quote.share_token is None  # Token revoked after signing
+    assert quote.share_token == "double-sign-token"  # Token preserved for PDF access
     assert quote.status == QuoteStatus.SIGNED
 
 
-def test_share_token_revoked_after_signing(full_setup, session: Session):
-    """Test that the share token is set to None after signing."""
+def test_share_token_preserved_after_signing(full_setup, session: Session):
+    """Test that the share token is preserved after signing for PDF access."""
     client, user, db_client, quote = full_setup
 
     quote.share_token = "revoke-token"
@@ -138,8 +137,8 @@ def test_share_token_revoked_after_signing(full_setup, session: Session):
     assert response.status_code == 200
 
     session.refresh(quote)
-    assert quote.share_token is None
-    assert quote.share_token_expires_at is None
+    assert quote.share_token == "revoke-token"
+    assert quote.status == QuoteStatus.SIGNED
 
 
 # ────────────────────────────────────────────────

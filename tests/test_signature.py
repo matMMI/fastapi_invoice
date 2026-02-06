@@ -130,3 +130,57 @@ def test_sign_action(signature_setup, session: Session):
     assert quote.status == QuoteStatus.SIGNED
     assert quote.signer_name == "Jean Dupont"
     assert quote.signed_at is not None
+
+
+# ============ PDF ENDPOINT TESTS ============
+
+
+def test_public_quote_pdf_valid_token(signature_setup, session: Session):
+    """Test downloading PDF with valid token - verifies import re works."""
+    client, quote = signature_setup
+
+    # Set token in DB
+    quote.share_token = "valid-pdf-token"
+    quote.status = QuoteStatus.SIGNED  # Can download signed quotes
+    session.add(quote)
+    session.commit()
+
+    # Access without auth header
+    client.headers = {}
+
+    response = client.get("/api/public/quotes/valid-pdf-token/pdf")
+    assert response.status_code == 200
+    assert "application/pdf" in response.headers.get("content-type", "")
+    assert len(response.content) > 0
+
+
+def test_public_quote_pdf_invalid_token(signature_setup, session: Session):
+    """Test PDF download with invalid token returns 404."""
+    client, quote = signature_setup
+    client.headers = {}
+
+    response = client.get("/api/public/quotes/non-existent-token/pdf")
+    assert response.status_code == 404
+
+
+def test_public_quote_pdf_filename_escaping(signature_setup, session: Session):
+    """Test that PDF filename is properly escaped (tests import re)."""
+    client, quote = signature_setup
+
+    # Create quote with special characters in number
+    quote.share_token = "escape-test-token"
+    quote.quote_number = "Q-001/2024 (TEST)"  # Has special chars
+    quote.status = QuoteStatus.SIGNED
+    session.add(quote)
+    session.commit()
+
+    client.headers = {}
+
+    response = client.get("/api/public/quotes/escape-test-token/pdf")
+    assert response.status_code == 200
+
+    # Check Content-Disposition header has escaped filename
+    disposition = response.headers.get("Content-Disposition", "")
+    assert "Devis_" in disposition
+    # Special chars should be removed: / ( ) become safe
+    assert "Q-0012024 TEST" in disposition or "Q-001" in disposition

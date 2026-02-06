@@ -4,6 +4,7 @@ Share and sign quotes - public endpoints for electronic signature.
 
 import base64
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -237,6 +238,7 @@ async def get_public_quote_pdf(request: Request, token: str, db: Session = Depen
 
     from models.settings import Settings
     from services.pdf_generator import generate_quote_pdf
+
     statement = (
         select(Quote)
         .where(Quote.share_token == token)
@@ -275,8 +277,6 @@ async def get_public_quote_pdf(request: Request, token: str, db: Session = Depen
     except Exception as e:
         logger.error(f"PDF generation failed for quote {quote.id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Erreur lors de la génération du PDF")
-
-    import re
 
     safe_number = re.sub(r"[^\w\s\-.]", "", quote.quote_number).strip()
     filename = f"Devis_{safe_number}.pdf"

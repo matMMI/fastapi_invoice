@@ -3,7 +3,6 @@
 import base64
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-
 from unittest.mock import patch
 
 import pytest

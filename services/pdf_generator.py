@@ -1,3 +1,4 @@
+# devis_generator_api/services/pdf_generator.py
 """PDF generation service for quotes using ReportLab."""
 
 import ipaddress
@@ -61,14 +62,11 @@ def _is_private_ip(ip_str: str) -> bool:
         addr = ipaddress.ip_address(ip_str)
         return addr.is_private or addr.is_reserved or addr.is_loopback or addr.is_link_local
     except ValueError:
-        return True  # If we can't parse it, block it
+        return True
 
 
 def _is_safe_url(url: str) -> bool:
-    """Validate that a URL does not point to internal/private resources.
-
-    Resolves DNS to prevent DNS rebinding and checks all resolved IPs.
-    """
+    """Validate that a URL does not point to internal/private resources."""
     parsed = urllib.parse.urlparse(url)
     hostname = (parsed.hostname or "").lower()
     if hostname in BLOCKED_HOSTS:
@@ -77,7 +75,6 @@ def _is_safe_url(url: str) -> bool:
         return False
     if parsed.scheme not in ("http", "https"):
         return False
-    # Resolve DNS and check all IPs to prevent DNS rebinding
     try:
         addrinfos = socket.getaddrinfo(hostname, None)
         for family, _, _, _, sockaddr in addrinfos:
@@ -85,7 +82,7 @@ def _is_safe_url(url: str) -> bool:
             if _is_private_ip(ip_str):
                 return False
     except socket.gaierror:
-        return False  # Cannot resolve = block
+        return False
     return True
 
 
@@ -121,9 +118,18 @@ def generate_quote_pdf(quote: Quote, settings: Settings, user: User) -> bytes:
         spaceAfter=2,
     )
 
-    normal_style = ParagraphStyle("Normal", parent=styles["Normal"], fontSize=10, leading=14)
-
+    normal_style = ParagraphStyle("Normal", parent=styles["Normal"], fontSize=9, leading=12)
     right_align_style = ParagraphStyle("RightAlign", parent=normal_style, alignment=TA_RIGHT)
+
+    detail_style = ParagraphStyle(
+        "DetailInline",
+        parent=normal_style,
+        fontSize=7,
+        textColor=colors.HexColor("#6b7280"),
+        leading=9,
+        spaceBefore=2,
+        leftIndent=0,
+    )
 
     def truncate(text, length=50):
         if text and len(text) > length:
@@ -135,32 +141,57 @@ def generate_quote_pdf(quote: Quote, settings: Settings, user: User) -> bytes:
     company_email = settings.company_email or user.email
     company_siret = user.siret or settings.company_siret
 
-    # Left Column: Logo & Company Info
     left_column = []
     if settings.company_logo_url:
         try:
             logo_path = settings.company_logo_url
             img = None
-            # Resolve relative paths (e.g. /logo.png) via the frontend URL
             if logo_path.startswith("/") and not os.path.exists(logo_path):
                 frontend_url = os.getenv("FRONTEND_URL", "")
                 if not frontend_url:
-                    # Fallback: use the first CORS origin as frontend URL
                     cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000")
                     frontend_url = cors_origins.split(",")[0].strip()
                 logo_path = f"{frontend_url.rstrip('/')}{logo_path}"
             if logo_path.startswith("http"):
-                # Always validate URL safety (no bypass for internal logos)
-                if not _is_safe_url(logo_path):
-                    logger.warning("Blocked unsafe logo URL")
-                    raise ValueError("URL de logo non autorisée")
-                req = urllib.request.Request(logo_path, headers={"User-Agent": "Mozilla/5.0"})
-                with urllib.request.urlopen(req, timeout=5) as response:
-                    img_data = response.read(5 * 1024 * 1024)  # 5MB max
-                    img_stream = BytesIO(img_data)
-                    img = Image(img_stream, width=1 * cm, height=1 * cm, kind="proportional")
-            # Do NOT load arbitrary local file paths — only allow HTTP(S) URLs
-
+                is_development = os.getenv("ENVIRONMENT", "development") == "development"
+                if is_development and any(
+                    logo_path.startswith(f"http://{host}")
+                    for host in ["localhost", "127.0.0.1", "0.0.0.0"]
+                ):
+                    req = urllib.request.Request(logo_path, headers={"User-Agent": "Mozilla/5.0"})
+                    with urllib.request.urlopen(req, timeout=5) as response:
+                        img_data = response.read(5 * 1024 * 1024)
+                        img_stream = BytesIO(img_data)
+                        img = Image(img_stream, width=1 * cm, height=1 * cm, kind="proportional")
+                elif not is_development:
+                    if not _is_safe_url(logo_path):
+                        logger.warning("Blocked unsafe logo URL")
+                        raise ValueError("URL de logo non autorisée")
+                    req = urllib.request.Request(logo_path, headers={"User-Agent": "Mozilla/5.0"})
+                    with urllib.request.urlopen(req, timeout=5) as response:
+                        img_data = response.read(5 * 1024 * 1024)
+                        img_stream = BytesIO(img_data)
+                        img = Image(img_stream, width=1 * cm, height=1 * cm, kind="proportional")
+            if not img and os.getenv("ENVIRONMENT", "development") == "development":
+                try:
+                    possible_paths = [
+                        logo_path.lstrip("/"),
+                        f"public/{logo_path.lstrip('/')}",
+                        f"../devis_generator/public/{logo_path.lstrip('/')}",
+                        f"/Users/mthtgi/Desktop/vercel/devis_fullstack/devis_generator/public/{logo_path.lstrip('/')}",
+                    ]
+                    for try_path in possible_paths:
+                        if os.path.exists(try_path):
+                            with open(try_path, "rb") as f:
+                                img_data = f.read(5 * 1024 * 1024)
+                                img_stream = BytesIO(img_data)
+                                img = Image(
+                                    img_stream, width=1 * cm, height=1 * cm, kind="proportional"
+                                )
+                            logger.info(f"Loaded logo from local path: {try_path}")
+                            break
+                except Exception as fallback_e:
+                    logger.debug(f"Local logo fallback failed: {fallback_e}")
             if img:
                 img.hAlign = "LEFT"
                 left_column.append(img)
@@ -180,10 +211,7 @@ def generate_quote_pdf(quote: Quote, settings: Settings, user: User) -> bytes:
     if company_siret:
         left_column.append(Paragraph(f"SIRET: {_esc(company_siret)}", normal_style))
 
-    # Right Column: Quote Params & Client Info
     right_column = []
-
-    # Quote Details
     doc_type = "FACTURE" if quote.is_paid or quote.status == QuoteStatus.SIGNED else "DEVIS"
     if quote.is_paid:
         doc_type = "FACTURE ACQUITTÉE"
@@ -201,10 +229,7 @@ def generate_quote_pdf(quote: Quote, settings: Settings, user: User) -> bytes:
                 f"<b>Payé le : {quote.payment_date.strftime('%d/%m/%Y')}</b>", right_align_style
             )
         )
-
     right_column.append(Spacer(1, 1 * cm))
-
-    # Client Info (Right Aligned)
     right_column.append(Paragraph("<b>Facturer à :</b>", right_align_style))
     if quote.client:
         if quote.client.company:
@@ -218,7 +243,6 @@ def generate_quote_pdf(quote: Quote, settings: Settings, user: User) -> bytes:
             )
         right_column.append(Paragraph(_esc(truncate(quote.client.email)), right_align_style))
 
-    # Unified Header Table
     header_data = [[left_column, right_column]]
     header_table = Table(header_data, colWidths=[9 * cm, 8 * cm])
     header_table.setStyle(
@@ -233,49 +257,77 @@ def generate_quote_pdf(quote: Quote, settings: Settings, user: User) -> bytes:
     elements.append(header_table)
     elements.append(Spacer(1, 1 * cm))
 
-    # --- Line Items Table ---
-    items_data = [["Description", "Qté", "Prix Unit.", "Total"]]
-    for item in quote.items:
-        items_data.append(
-            [
-                Paragraph(_esc(item.description), normal_style),
-                str(item.quantity),
-                f"{float(item.unit_price):.2f} {quote.currency.value}",
-                f"{float(item.total):.2f} {quote.currency.value}",
-            ]
-        )
+    # --- Items table (one Table per row to allow page breaks) ---
+    for i, item in enumerate(quote.items):
+        if i == 0:
+            header_row = [["Description", "Qté", "Prix Unit.", "Total"]]
+            h_table = Table(header_row, colWidths=[10 * cm, 1.5 * cm, 2.5 * cm, 3 * cm])
+            h_table.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#111827")),
+                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                        ("FONTSIZE", (0, 0), (-1, 0), 10),
+                        ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
+                        ("TOPPADDING", (0, 0), (-1, 0), 10),
+                        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
+                        ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+                    ]
+                )
+            )
+            elements.append(h_table)
 
-    items_table = Table(items_data, colWidths=[9 * cm, 2 * cm, 3 * cm, 3 * cm])
-    items_table.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#111827")),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("FONTSIZE", (0, 0), (-1, 0), 10),
-                ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
-                ("TOPPADDING", (0, 0), (-1, 0), 10),
-                ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
-            ]
+        item_row = [
+            [Paragraph(_esc(item.description), normal_style)],
+            str(item.quantity),
+            f"{float(item.unit_price):.2f} {quote.currency.value}",
+            f"{float(item.total):.2f} {quote.currency.value}",
+        ]
+        item_table = Table([item_row], colWidths=[10 * cm, 1.5 * cm, 2.5 * cm, 3 * cm])
+        item_table.setStyle(
+            TableStyle(
+                [
+                    ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 9),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+                    ("TOPPADDING", (0, 0), (-1, -1), 6),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ]
+            )
         )
-    )
-    elements.append(items_table)
+        elements.append(item_table)
+
+        # Detailed description as standalone Paragraph (always splittable across pages)
+        if item.detailed_description:
+            formatted_detail = _esc(item.detailed_description).replace("\n", "<br/>")
+            elements.append(
+                Paragraph(
+                    formatted_detail,
+                    ParagraphStyle(
+                        "DetailFree",
+                        parent=detail_style,
+                        leftIndent=12,
+                        rightIndent=12,
+                        spaceBefore=2,
+                        spaceAfter=6,
+                        backColor=colors.HexColor("#f9fafb"),
+                        borderPadding=(4, 8, 6, 8),
+                    ),
+                )
+            )
+
     elements.append(Spacer(1, 0.5 * cm))
 
-    # --- Totals Section ---
-    totals_data = []
-
-    # Determine Fiscal logic
+    # --- Totals ---
     is_vat_applicable = True
     if quote.tax_status == TaxStatus.FRANCHISE:
         is_vat_applicable = False
     elif quote.tax_status == TaxStatus.ASSUJETTI:
         is_vat_applicable = True
     else:
-        # Fallback to legacy
         is_vat_applicable = getattr(settings, "is_vat_applicable", True)
 
     if is_vat_applicable:
@@ -304,27 +356,101 @@ def generate_quote_pdf(quote: Quote, settings: Settings, user: User) -> bytes:
     )
     elements.append(totals_table)
 
-    # --- Footer / Notes ---
+    # --- Encart acompte (orange) ---
+    if quote.deposit_percentage:
+        deposit_pct = float(quote.deposit_percentage)
+        deposit_amt = float(quote.deposit_amount or 0)
+        remaining_amt = float(quote.total) - deposit_amt
+        currency_val = quote.currency.value
+
+        elements.append(Spacer(1, 0.4 * cm))
+
+        deposit_style_label = ParagraphStyle(
+            "DepositLabel",
+            parent=normal_style,
+            fontSize=9,
+            textColor=colors.HexColor("#c2410c"),
+            fontName="Helvetica-Bold",
+        )
+        deposit_style_body = ParagraphStyle(
+            "DepositBody",
+            parent=normal_style,
+            fontSize=8,
+            textColor=colors.HexColor("#ea580c"),
+            leading=11,
+        )
+        deposit_style_remaining = ParagraphStyle(
+            "DepositRemaining",
+            parent=normal_style,
+            fontSize=8,
+            textColor=colors.HexColor("#92400e"),
+            leading=11,
+            fontName="Helvetica-Bold",
+        )
+
+        remaining_pct = 100 - deposit_pct
+
+        deposit_content = [
+            [
+                Paragraph(
+                    f"Acompte à régler ({deposit_pct:.0f}%) : "
+                    f"<b>{deposit_amt:.2f} {currency_val}</b>",
+                    deposit_style_label,
+                )
+            ],
+            [
+                Paragraph(
+                    f"Après signature du devis, vous vous engagez à régler dès que possible "
+                    f"un acompte de <b>{deposit_amt:.2f} {currency_val}</b> afin de confirmer "
+                    f"votre engagement et de garantir le bon déroulement de la mission.",
+                    deposit_style_body,
+                )
+            ],
+            [
+                Paragraph(
+                    f"Reste à régler à la livraison ({remaining_pct:.0f}%) : "
+                    f"{remaining_amt:.2f} {currency_val}",
+                    deposit_style_remaining,
+                )
+            ],
+        ]
+
+        deposit_table = Table(deposit_content, colWidths=[17 * cm])
+        deposit_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#fff7ed")),
+                    ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#fb923c")),
+                    ("TOPPADDING", (0, 0), (-1, -1), 6),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+                    ("LINEBELOW", (0, 0), (-1, 0), 0.5, colors.HexColor("#fed7aa")),
+                    ("LINEBELOW", (0, 1), (-1, 1), 0.5, colors.HexColor("#fed7aa")),
+                    ("BACKGROUND", (0, 2), (-1, 2), colors.HexColor("#ffedd5")),
+                ]
+            )
+        )
+        elements.append(deposit_table)
+
+    # --- Notes ---
     if quote.notes:
         elements.append(Spacer(1, 1 * cm))
         elements.append(Paragraph("<b>Notes:</b>", normal_style))
         elements.append(Paragraph(_esc(quote.notes).replace("\n", "<br/>"), normal_style))
 
-    # --- Fiscal & Legal Mentions ---
     elements.append(Spacer(1, 1 * cm))
     legal_style = ParagraphStyle("Legal", parent=normal_style, fontSize=8, textColor=colors.gray)
 
     if not is_vat_applicable:
         mention = settings.vat_exemption_text or "TVA non applicable, art. 293 B du CGI"
         elements.append(Paragraph(_esc(mention), legal_style))
-
-    # Legal Mentions (Penalties)
     if settings.late_payment_penalties:
         elements.append(
             Paragraph(f"Pénalités de retard : {_esc(settings.late_payment_penalties)}", legal_style)
         )
 
-    # --- Electronic Signature ---
+    # --- Signature électronique ---
     if quote.status == QuoteStatus.SIGNED and quote.signature_data:
         elements.append(Spacer(1, 1 * cm))
         elements.append(Paragraph("<b>Signature Électronique :</b>", normal_style))
@@ -366,7 +492,7 @@ def generate_quote_pdf(quote: Quote, settings: Settings, user: User) -> bytes:
             logger.error(f"Signature rendering failed: {e}")
             elements.append(Paragraph("[Signature non disponible]", normal_style))
 
-    # --- Footer Custom Text ---
+    # --- Footer ---
     if settings.pdf_footer_text:
         elements.append(Spacer(1, 1 * cm))
         footer_style = ParagraphStyle(

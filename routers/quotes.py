@@ -14,7 +14,13 @@ from models.client import Client
 from models.enums import QuoteStatus, TaxStatus
 from models.quote import Quote, QuoteItem
 from models.user import User
-from schemas.quote import QuoteCreate, QuoteListResponse, QuoteResponse, QuoteUpdate
+from schemas.quote import (
+    QuoteCreate,
+    QuoteItemResponse,
+    QuoteListResponse,
+    QuoteResponse,
+    QuoteUpdate,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -36,6 +42,12 @@ def calculate_quote_totals(quote: Quote, items: list[QuoteItem]):
     quote.subtotal = subtotal
     quote.tax_amount = tax_amount
     quote.total = total
+
+    # Calculate deposit amount if percentage is set
+    if quote.deposit_percentage:
+        quote.deposit_amount = (total * quote.deposit_percentage) / Decimal("100.00")
+    else:
+        quote.deposit_amount = None
 
 
 @router.post("/quotes", response_model=QuoteResponse, status_code=status.HTTP_201_CREATED)
@@ -67,6 +79,7 @@ async def create_quote(
         tax_rate=effective_tax_rate,
         discount_type=quote_data.discount_type,
         discount_value=quote_data.discount_value,
+        deposit_percentage=quote_data.deposit_percentage,
         notes=quote_data.notes,
         payment_terms=quote_data.payment_terms,
         status=QuoteStatus.DRAFT,
@@ -78,6 +91,7 @@ async def create_quote(
         item_total = item_in.quantity * item_in.unit_price
         db_item = QuoteItem(
             description=item_in.description,
+            detailed_description=item_in.detailed_description,
             quantity=item_in.quantity,
             unit_price=item_in.unit_price,
             total=item_total,
@@ -135,7 +149,7 @@ async def list_quotes(
         quotes_with_client = []
         for quote, client_name in results:
             quote_dict = quote.model_dump()
-            quote_dict["items"] = quote.items
+            quote_dict["items"] = [QuoteItemResponse.model_validate(item) for item in quote.items]
             quote_dict["client_name"] = client_name
             quotes_with_client.append(quote_dict)
 
@@ -166,7 +180,7 @@ async def get_quote(
 
     quote, client_name = result
     quote_dict = quote.model_dump()
-    quote_dict["items"] = quote.items
+    quote_dict["items"] = [QuoteItemResponse.model_validate(item) for item in quote.items]
     quote_dict["client_name"] = client_name
     return quote_dict
 
@@ -221,6 +235,9 @@ async def update_quote(
         else:
             quote.tax_rate = quote_data.tax_rate
 
+    if quote_data.deposit_percentage is not None:
+        quote.deposit_percentage = quote_data.deposit_percentage
+
     if quote_data.items is not None:
         existing_items = {item.id: item for item in quote.items}
         new_items_list = []
@@ -232,6 +249,8 @@ async def update_quote(
                 existing_item = existing_items[item_in.id]
                 if item_in.description is not None:
                     existing_item.description = item_in.description
+                if hasattr(item_in, "detailed_description"):
+                    existing_item.detailed_description = item_in.detailed_description
                 if item_in.quantity is not None:
                     existing_item.quantity = item_in.quantity
                 if item_in.unit_price is not None:
@@ -245,6 +264,7 @@ async def update_quote(
                 new_item = QuoteItem(
                     quote_id=quote.id,
                     description=item_in.description or "",
+                    detailed_description=item_in.detailed_description,
                     quantity=item_in.quantity or Decimal(1),
                     unit_price=item_in.unit_price or Decimal(0),
                     total=item_total,

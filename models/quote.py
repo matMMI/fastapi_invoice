@@ -31,6 +31,8 @@ class Quote(SQLModel, table=True):
     tax_rate: Decimal = Field(default=Decimal("20.00"), max_digits=5, decimal_places=2)
     tax_amount: Decimal = Field(default=Decimal("0.00"), max_digits=12, decimal_places=2)
     total: Decimal = Field(default=Decimal("0.00"), max_digits=12, decimal_places=2)
+    deposit_percentage: Decimal | None = Field(default=None, max_digits=5, decimal_places=2)
+    deposit_amount: Decimal | None = Field(default=None, max_digits=12, decimal_places=2)
 
     # PDF and metadata
     pdf_url: str | None = Field(default=None, max_length=500)
@@ -66,7 +68,8 @@ class QuoteItem(SQLModel, table=True):
 
     id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
     quote_id: str = Field(foreign_key="quote.id", index=True, ondelete="CASCADE")
-    description: str
+    description: str  # Short label/title
+    detailed_description: str | None = Field(default=None)  # Rich text detailed description
     quantity: Decimal = Field(max_digits=10, decimal_places=2)
     unit_price: Decimal = Field(max_digits=12, decimal_places=2)
     total: Decimal = Field(max_digits=12, decimal_places=2)

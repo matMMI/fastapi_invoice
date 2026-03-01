@@ -28,6 +28,7 @@ class ShareResponse(BaseModel):
 
 class PublicQuoteItem(BaseModel):
     description: str
+    detailed_description: str | None = None
     quantity: float
     unit_price: float
     total: float
@@ -43,6 +44,8 @@ class PublicQuoteResponse(BaseModel):
     tax_rate: float
     tax_amount: float
     total: float
+    deposit_percentage: float | None = None
+    deposit_amount: float | None = None
     notes: str | None
     payment_terms: str | None
     items: list[PublicQuoteItem]
@@ -153,11 +156,14 @@ async def get_public_quote(request: Request, token: str, db: Session = Depends(g
         tax_rate=float(quote.tax_rate),
         tax_amount=float(quote.tax_amount),
         total=float(quote.total),
+        deposit_percentage=float(quote.deposit_percentage) if quote.deposit_percentage else None,
+        deposit_amount=float(quote.deposit_amount) if quote.deposit_amount else None,
         notes=quote.notes,
         payment_terms=quote.payment_terms,
         items=[
             PublicQuoteItem(
                 description=item.description,
+                detailed_description=item.detailed_description,
                 quantity=float(item.quantity),
                 unit_price=float(item.unit_price),
                 total=float(item.total),

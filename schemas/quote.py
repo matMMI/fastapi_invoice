@@ -12,6 +12,7 @@ class QuoteItemCreate(BaseModel):
     """Schema for creating a quote item."""
 
     description: str = Field(..., min_length=1, max_length=2000)
+    detailed_description: str | None = Field(None, max_length=10000)
     quantity: Decimal = Field(..., gt=0)
     unit_price: Decimal = Field(..., ge=0)
     order: int = Field(default=0)
@@ -22,6 +23,7 @@ class QuoteItemUpdate(BaseModel):
 
     id: str | None = None
     description: str | None = Field(None, min_length=1, max_length=2000)
+    detailed_description: str | None = Field(None, max_length=10000)
     quantity: Decimal | None = Field(None, gt=0)
     unit_price: Decimal | None = Field(None, ge=0)
     order: int | None = None
@@ -33,6 +35,7 @@ class QuoteItemResponse(BaseModel):
     id: str
     quote_id: str
     description: str
+    detailed_description: str | None
     quantity: Decimal
     unit_price: Decimal
     total: Decimal
@@ -50,6 +53,7 @@ class QuoteCreate(BaseModel):
     tax_rate: Decimal = Field(default=Decimal("20.00"), ge=0)
     discount_type: DiscountType | None = None
     discount_value: Decimal | None = None
+    deposit_percentage: Decimal | None = Field(None, ge=0, le=100)
 
     notes: str | None = Field(None, max_length=5000)
     payment_terms: str | None = Field(None, max_length=2000)
@@ -67,6 +71,7 @@ class QuoteUpdate(BaseModel):
     tax_rate: Decimal | None = Field(None, ge=0)
     discount_type: DiscountType | None = None
     discount_value: Decimal | None = None
+    deposit_percentage: Decimal | None = Field(None, ge=0, le=100)
 
     notes: str | None = Field(None, max_length=5000)
     payment_terms: str | None = Field(None, max_length=2000)
@@ -94,6 +99,8 @@ class QuoteResponse(BaseModel):
     tax_rate: Decimal
     tax_amount: Decimal
     total: Decimal
+    deposit_percentage: Decimal | None
+    deposit_amount: Decimal | None
 
     # Fiscal & Payment
     tax_status: str | None = None  # Enum as str

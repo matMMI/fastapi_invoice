@@ -14,6 +14,14 @@ from models.user import User
 
 router = APIRouter()
 
+# Seuils legaux 2026 (source de verite unique)
+SEUIL_TVA_FRANCHISE = 37500.0
+SEUIL_TVA_TOLERANCE = 39100.0
+SEUIL_MICRO_BNC = 77700.0
+TAUX_URSSAF = 0.256  # BNC 2026
+TAUX_ABATTEMENT_BNC = 0.34
+ABATTEMENT_MINIMUM = 305.0
+
 
 class StatusCount(BaseModel):
     status: str
@@ -45,6 +53,7 @@ class FiscalRevenue(BaseModel):
     quarter_to_date: float
     current_year: int
     current_quarter: int
+    urssaf_rate: float
 
 
 class DashboardMetrics(BaseModel):
@@ -81,6 +90,7 @@ class ProjectionData(BaseModel):
 
 class FiscalSimulation(BaseModel):
     ca_annuel: float
+    urssaf_rate: float
     cotisations_urssaf: float
     abattement: float
     revenu_imposable: float
@@ -200,6 +210,7 @@ async def get_dashboard_metrics(
         quarter_to_date=float(quarter_revenue),
         current_year=current_year,
         current_quarter=current_quarter,
+        urssaf_rate=TAUX_URSSAF,
     )
 
     # ====== Threshold Logic - Regles Comptables Micro-Entreprise BNC ======
@@ -216,14 +227,6 @@ async def get_dashboard_metrics(
     )
 
     collected_revenue = float(collected_revenue)
-
-    # Seuils legaux 2026
-    SEUIL_TVA_FRANCHISE = 37500.0
-    SEUIL_TVA_TOLERANCE = 39100.0
-    SEUIL_MICRO_BNC = 77700.0
-    TAUX_URSSAF = 0.256  # BNC 2026
-    TAUX_ABATTEMENT_BNC = 0.34
-    ABATTEMENT_MINIMUM = 305.0
 
     # Calcul impot progressif (bareme 2025)
     def calculate_progressive_tax(rev_imp: float) -> tuple[float, int]:
@@ -264,6 +267,7 @@ async def get_dashboard_metrics(
 
     fiscal_sim = FiscalSimulation(
         ca_annuel=collected_revenue,
+        urssaf_rate=TAUX_URSSAF,
         cotisations_urssaf=round(cotisations_urssaf, 2),
         abattement=round(abattement, 2),
         revenu_imposable=round(revenu_imposable, 2),
